@@ -70,6 +70,11 @@ when (NimMajor, NimMinor) >= (1, 4):
         ""
       ## OS polling engine type which is going to be used by chronos.
 
+    chronosFuturesInstrumentation* {.booldefine.} = defined(chronosFuturesInstrumentation)
+      ## Enable instrumentation callbacks which are called at
+      ## the start, pause, or end of a Future's lifetime.
+      ## Useful for implementing metrics or other instrumentation.
+
 else:
   # 1.2 doesn't support `booldefine` in `when` properly
   const
@@ -105,6 +110,7 @@ else:
         "poll"
       else:
         ""
+    chronosFuturesInstrumentation* {.booldefine.} = defined(chronosFuturesInstrumentation)
 
 when defined(debug) or defined(chronosConfig):
   import std/macros

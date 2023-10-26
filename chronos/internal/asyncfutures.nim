@@ -180,6 +180,9 @@ proc finish(fut: FutureBase, state: FutureState) =
   # 1. `finish()` is a private procedure and `state` is under our control.
   # 2. `fut.state` is checked by `checkFinished()`.
   fut.internalState = state
+  when chronosFuturesInstrumentation:
+    if not(isNil(onFutureStop)):
+      onFutureStop(fut)
   fut.internalCancelcb = nil # release cancellation callback memory
   for item in fut.internalCallbacks.mitems():
     if not(isNil(item.function)):
@@ -260,6 +263,9 @@ proc tryCancel(future: FutureBase, loc: ptr SrcLoc): bool =
     return true
   if future.finished():
     return false
+
+  when chronosFuturesInstrumentation:
+    if not(isNil(onFutureStop)): onFutureStop(future)
 
   if not(isNil(future.internalChild)):
     # If you hit this assertion, you should have used the `CancelledError`
@@ -354,6 +360,9 @@ proc futureContinue*(fut: FutureBase) {.raises: [], gcsafe.} =
   # Every call to an `{.async.}` proc is redirected to call this function
   # instead with its original body captured in `fut.closure`.
   while true:
+    when chronosFuturesInstrumentation:
+      if not(isNil(onFutureRunning)):
+        onFutureRunning(fut)
     # Call closure to make progress on `fut` until it reaches `yield` (inside
     # `await` typically) or completes / fails / is cancelled
     let next: FutureBase = fut.internalClosure(fut)
