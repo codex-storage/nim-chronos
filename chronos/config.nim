@@ -49,6 +49,11 @@ when (NimMajor, NimMinor) >= (1, 4):
       ## using `AsyncProcessOption.EvalCommand` and API calls such as
       ## ``execCommand(command)`` and ``execCommandEx(command)``.
 
+    chronosFuturesInstrumentation* {.booldefine.} = defined(chronosFuturesInstrumentation)
+      ## Enable instrumentation callbacks which are called at
+      ## the start, pause, or end of a Future's lifetime.
+      ## Useful for implementing metrics or other instrumentation.
+
 else:
   # 1.2 doesn't support `booldefine` in `when` properly
   const
@@ -61,6 +66,7 @@ else:
     chronosFutureTracking*: bool =
       defined(chronosDebug) or defined(chronosFutureTracking)
     chronosDumpAsync*: bool = defined(nimDumpAsync)
+    chronosFuturesInstrumentation*: bool = defined(chronosFuturesInstrumentation)
     chronosProcShell* {.strdefine.}: string =
       when defined(windows):
         "cmd.exe"

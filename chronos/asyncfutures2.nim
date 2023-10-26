@@ -132,6 +132,9 @@ proc finish(fut: FutureBase, state: FutureState) =
   # 1. `finish()` is a private procedure and `state` is under our control.
   # 2. `fut.state` is checked by `checkFinished()`.
   fut.internalState = state
+  when chronosFuturesInstrumentation:
+    if not(isNil(onFutureStop)):
+      onFutureStop(fut)
   when chronosStrictFutureAccess:
     doAssert fut.internalCancelcb == nil or state != FutureState.Cancelled
   fut.internalCancelcb = nil # release cancellation callback memory
@@ -211,6 +214,9 @@ proc cancel(future: FutureBase, loc: ptr SrcLoc): bool =
   ## not return ``true`` (unless the Future was already cancelled).
   if future.finished():
     return false
+
+  when chronosFuturesInstrumentation:
+    if not(isNil(onFutureStop)): onFutureStop(future)
 
   if not(isNil(future.internalChild)):
     # If you hit this assertion, you should have used the `CancelledError`
