@@ -247,6 +247,7 @@ suite "Asynchronous utilities test suite":
           echo "avg wallTime:\t", v.totalWallTime div count, "\ttotal: ", v.totalWallTime
           echo "avg runTime:\t", v.totalRunTime div count, "\ttotal: ", v.totalRunTime
         if k.procedure == "simpleAsync1":
+          echo "v: ", v
           check v.totalExecTime >= 150.milliseconds()
           check v.totalExecTime <= 180.milliseconds()
 

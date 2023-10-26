@@ -319,6 +319,9 @@ proc futureContinue*(fut: FutureBase) {.raises: [], gcsafe.} =
   var next: FutureBase
   template iterate =
     while true:
+      when chronosFuturesInstrumentation:
+        if not(isNil(onFutureRunning)):
+          onFutureRunning(fut)
       # Call closure to make progress on `fut` until it reaches `yield` (inside
       # `await` typically) or completes / fails / is cancelled
       next = fut.internalClosure(fut)
