@@ -323,8 +323,8 @@ template awaitne*[T](f: Future[T]): Future[T] =
     chronosInternalRetFuture.internalChild = f
 
     when chronosFuturesInstrumentation:
-      if not(isNil(chronosInternalRetFuture.onFuturePause)):
-        chronosInternalRetFuture.onFuturePause(chronosInternalRetFuture, f)
+      if not(isNil(onFuturePause)):
+        onFuturePause(chronosInternalRetFuture, f)
 
     yield chronosInternalRetFuture.internalChild
     if chronosInternalRetFuture.internalMustCancel:

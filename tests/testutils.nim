@@ -91,6 +91,24 @@ suite "Asynchronous utilities test suite":
     else:
       skip()
 
+  test "check empty futures instrumentation runs":
+
+    when chronosFuturesInstrumentation:
+
+      proc simpleAsyncChild() {.async.} =
+        echo "child sleep..."
+        os.sleep(25)
+      
+      proc simpleAsync1() {.async.} =
+        for i in 0..1:
+          await sleepAsync(40.milliseconds)
+          await simpleAsyncChild()
+          echo "sleep..."
+          os.sleep(50)
+        
+      waitFor(simpleAsync1())
+      check true
+
 
   test "Example of using Future hooks to gather metrics":
 

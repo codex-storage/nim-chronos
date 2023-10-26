@@ -129,7 +129,8 @@ proc internalInitFutureBase*(
       futureList.count.inc()
 
   when chronosFuturesInstrumentation:
-    onFutureCreate(fut)
+    if not(isNil(onFutureCreate)):
+      onFutureCreate(fut)
 
 
 # Public API
