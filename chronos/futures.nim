@@ -93,6 +93,13 @@ when chronosFutureTracking:
 
   var futureList* {.threadvar.}: FutureList
 
+when chronosFuturesInstrumentation:
+  var
+    onFutureCreate* {.threadvar.}: proc (fut: FutureBase) {.gcsafe, raises: [].}
+    onFutureRunning* {.threadvar.}: proc (fut: FutureBase) {.gcsafe, raises: [].}
+    onFuturePause* {.threadvar.}: proc (fut, child: FutureBase) {.gcsafe, raises: [].}
+    onFutureStop* {.threadvar.}: proc (fut: FutureBase) {.gcsafe, raises: [].}
+
 # Internal utilities - these are not part of the stable API
 proc internalInitFutureBase*(fut: FutureBase, loc: ptr SrcLoc,
                              state: FutureState, flags: FutureFlags) =
@@ -119,6 +126,11 @@ proc internalInitFutureBase*(fut: FutureBase, loc: ptr SrcLoc,
       if isNil(futureList.head):
         futureList.head = fut
       futureList.count.inc()
+
+  when chronosFuturesInstrumentation:
+    if not(isNil(onFutureCreate)):
+      onFutureCreate(fut)
+
 
 # Public API
 template init*[T](F: type Future[T], fromProc: static[string] = ""): Future[T] =
