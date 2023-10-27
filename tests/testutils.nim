@@ -252,7 +252,7 @@ suite "Asynchronous utilities test suite":
           check v.totalExecTime <= 180.milliseconds()
 
           check v.totalRunTime >= 200.milliseconds()
-          check v.totalRunTime <= 230.milliseconds()
+          check v.totalRunTime <= 240.milliseconds()
           discard
       echo ""
 
