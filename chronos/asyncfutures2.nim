@@ -133,8 +133,8 @@ proc finish(fut: FutureBase, state: FutureState) =
   # 2. `fut.state` is checked by `checkFinished()`.
   fut.internalState = state
   when chronosFuturesInstrumentation:
-    if not(isNil(onFutureStop)):
-      onFutureStop(fut)
+    if not(isNil(futures.onFutureStop)):
+      futures.onFutureStop(fut)
   when chronosStrictFutureAccess:
     doAssert fut.internalCancelcb == nil or state != FutureState.Cancelled
   fut.internalCancelcb = nil # release cancellation callback memory
@@ -320,8 +320,8 @@ proc futureContinue*(fut: FutureBase) {.raises: [], gcsafe.} =
   template iterate =
     while true:
       when chronosFuturesInstrumentation:
-        if not(isNil(onFutureRunning)):
-          onFutureRunning(fut)
+        if not(isNil(futures.onFutureRunning)):
+          futures.onFutureRunning(fut)
       # Call closure to make progress on `fut` until it reaches `yield` (inside
       # `await` typically) or completes / fails / is cancelled
       next = fut.internalClosure(fut)
