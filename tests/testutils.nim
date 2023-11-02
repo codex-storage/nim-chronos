@@ -14,6 +14,29 @@ when chronosFuturesInstrumentation:
   import std/[tables, os, options, hashes]
   import ../chronos/timer
 
+type
+  FutureMetric = object
+    ## Holds average timing information for a given closure
+    closureLoc*: ptr SrcLoc
+    created*: Moment
+    start*: Option[Moment]
+    duration*: Duration
+    blocks*: int
+    initDuration*: Duration
+    durationChildren*: Duration
+
+  CallbackMetric = object
+    totalExecTime*: Duration
+    totalWallTime*: Duration
+    totalRunTime*: Duration
+    minSingleTime*: Duration
+    maxSingleTime*: Duration
+    count*: int64
+
+var
+  futureDurations: Table[uint, FutureMetric]
+  callbackDurations: Table[ptr SrcLoc, CallbackMetric]
+
 suite "Asynchronous utilities test suite":
   when chronosFutureTracking:
     proc getCount(): uint =
@@ -113,109 +136,90 @@ suite "Asynchronous utilities test suite":
 
     when chronosFuturesInstrumentation:
 
-      type
-        FutureMetric = object
-          ## Holds average timing information for a given closure
-          closureLoc*: ptr SrcLoc
-          created*: Moment
-          start*: Option[Moment]
-          duration*: Duration
-          blocks*: int
-          initDuration*: Duration
-          durationChildren*: Duration
-
-        CallbackMetric = object
-          totalExecTime*: Duration
-          totalWallTime*: Duration
-          totalRunTime*: Duration
-          minSingleTime*: Duration
-          maxSingleTime*: Duration
-          count*: int64
-
-      var
-        futureDurations: Table[uint, FutureMetric]
-        callbackDurations: Table[ptr SrcLoc, CallbackMetric]
-
-      proc setFutureCreate(fut: FutureBase) {.raises: [].} =
+      proc setFutureCreate(fut: FutureBase) {.nimcall, gcsafe, raises: [].} =
         ## used for setting the duration
-        let loc = fut.internalLocation[Create]
-        futureDurations[fut.id] = FutureMetric()
-        futureDurations.withValue(fut.id, metric):
-          metric.created = Moment.now()
-          echo loc, "; future create "
+        {.cast(gcsafe).}:
+          let loc = fut.internalLocation[Create]
+          futureDurations[fut.id] = FutureMetric()
+          futureDurations.withValue(fut.id, metric):
+            metric.created = Moment.now()
+            echo loc, "; future create "
 
-      proc setFutureStart(fut: FutureBase) {.raises: [].} =
+      proc setFutureStart(fut: FutureBase) {.nimcall, gcsafe, raises: [].} =
         ## used for setting the duration
-        let loc = fut.internalLocation[Create]
-        assert futureDurations.hasKey(fut.id)
-        futureDurations.withValue(fut.id, metric):
-          let ts = Moment.now()
-          metric.start = some ts
-          metric.blocks.inc()
-          echo loc, "; future start: ", metric.initDuration
-
-      proc setFuturePause(fut, child: FutureBase) {.raises: [].} =
-        ## used for setting the duration
-        let loc = fut.internalLocation[Create]
-        let childLoc = if child.isNil: nil else: child.internalLocation[Create]
-        var durationChildren = ZeroDuration
-        var initDurationChildren = ZeroDuration
-        if childLoc != nil:
-          futureDurations.withValue(child.id, metric):
-            durationChildren = metric.duration
-            initDurationChildren = metric.initDuration
-        assert futureDurations.hasKey(fut.id)
-        futureDurations.withValue(fut.id, metric):
-          if metric.start.isSome:
+        {.cast(gcsafe).}:
+          let loc = fut.internalLocation[Create]
+          assert futureDurations.hasKey(fut.id)
+          futureDurations.withValue(fut.id, metric):
             let ts = Moment.now()
-            metric.duration += ts - metric.start.get()
-            metric.duration -= initDurationChildren
-            if metric.blocks == 1:
-              metric.initDuration = ts - metric.created # tricky,
-                # the first block of a child iterator also
-                # runs on the parents clock, so we track our first block
-                # time so any parents can get it
-            echo loc, "; child firstBlock time: ", initDurationChildren
+            metric.start = some ts
+            metric.blocks.inc()
+            echo loc, "; future start: ", metric.initDuration
 
-            metric.durationChildren += durationChildren
-            metric.start = none Moment
-          echo loc, "; future pause ", if childLoc.isNil: "" else: " child: " & $childLoc
-
-      proc setFutureDuration(fut: FutureBase) {.raises: [].} =
+      proc setFuturePause(fut, child: FutureBase) {.nimcall, gcsafe, raises: [].} =
         ## used for setting the duration
-        let loc = fut.internalLocation[Create]
-        # assert  "set duration: " & $loc
-        var fm: FutureMetric
-        # assert futureDurations.pop(fut.id, fm)
-        futureDurations.withValue(fut.id, metric):
-          fm = metric[]
+        {.cast(gcsafe).}:
+          let loc = fut.internalLocation[Create]
+          let childLoc = if child.isNil: nil else: child.internalLocation[Create]
+          var durationChildren = ZeroDuration
+          var initDurationChildren = ZeroDuration
+          if childLoc != nil:
+            futureDurations.withValue(child.id, metric):
+              durationChildren = metric.duration
+              initDurationChildren = metric.initDuration
+          assert futureDurations.hasKey(fut.id)
+          futureDurations.withValue(fut.id, metric):
+            if metric.start.isSome:
+              let ts = Moment.now()
+              metric.duration += ts - metric.start.get()
+              metric.duration -= initDurationChildren
+              if metric.blocks == 1:
+                metric.initDuration = ts - metric.created # tricky,
+                  # the first block of a child iterator also
+                  # runs on the parents clock, so we track our first block
+                  # time so any parents can get it
+              echo loc, "; child firstBlock time: ", initDurationChildren
 
-        discard callbackDurations.hasKeyOrPut(loc, CallbackMetric(minSingleTime: InfiniteDuration))
-        callbackDurations.withValue(loc, metric):
-          echo loc, " set duration: ", callbackDurations.hasKey(loc)
-          metric.totalExecTime += fm.duration
-          metric.totalWallTime += Moment.now() - fm.created
-          metric.totalRunTime += metric.totalExecTime + fm.durationChildren
-          echo loc, " child duration: ", fm.durationChildren
-          metric.count.inc
-          metric.minSingleTime = min(metric.minSingleTime, fm.duration)
-          metric.maxSingleTime = max(metric.maxSingleTime, fm.duration)
-          # handle overflow
-          if metric.count == metric.count.typeof.high:
-            metric.totalExecTime = ZeroDuration
-            metric.count = 0
+              metric.durationChildren += durationChildren
+              metric.start = none Moment
+            echo loc, "; future pause ", if childLoc.isNil: "" else: " child: " & $childLoc
+
+      proc setFutureDuration(fut: FutureBase) {.nimcall, gcsafe, raises: [].} =
+        ## used for setting the duration
+        {.cast(gcsafe).}:
+          let loc = fut.internalLocation[Create]
+          # assert  "set duration: " & $loc
+          var fm: FutureMetric
+          # assert futureDurations.pop(fut.id, fm)
+          futureDurations.withValue(fut.id, metric):
+            fm = metric[]
+
+          discard callbackDurations.hasKeyOrPut(loc, CallbackMetric(minSingleTime: InfiniteDuration))
+          callbackDurations.withValue(loc, metric):
+            echo loc, " set duration: ", callbackDurations.hasKey(loc)
+            metric.totalExecTime += fm.duration
+            metric.totalWallTime += Moment.now() - fm.created
+            metric.totalRunTime += metric.totalExecTime + fm.durationChildren
+            echo loc, " child duration: ", fm.durationChildren
+            metric.count.inc
+            metric.minSingleTime = min(metric.minSingleTime, fm.duration)
+            metric.maxSingleTime = max(metric.maxSingleTime, fm.duration)
+            # handle overflow
+            if metric.count == metric.count.typeof.high:
+              metric.totalExecTime = ZeroDuration
+              metric.count = 0
 
       onFutureCreate =
-        proc (f: FutureBase) =
+        proc (f: FutureBase) {.nimcall, gcsafe, raises: [].} =
           f.setFutureCreate()
       onFutureRunning =
-        proc (f: FutureBase) =
+        proc (f: FutureBase) {.nimcall, gcsafe, raises: [].} =
           f.setFutureStart()
       onFuturePause =
-        proc (f, child: FutureBase) =
+        proc (f, child: FutureBase) {.nimcall, gcsafe, raises: [].} =
           f.setFuturePause(child)
       onFutureStop =
-        proc (f: FutureBase) =
+        proc (f: FutureBase) {.nimcall, gcsafe, raises: [].} =
           f.setFuturePause(nil)
           f.setFutureDuration()
 

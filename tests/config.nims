@@ -9,5 +9,5 @@ switch("threads", "on")
 switch("define", "nimRawSetjmp")
 
 ## REMOVE BEFORE MERGE!
---d:chronosFuturesInstrumentation
+# --d:chronosFuturesInstrumentation
 # --d:chronosFutureTracking
