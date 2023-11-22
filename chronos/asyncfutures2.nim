@@ -133,8 +133,8 @@ proc finish(fut: FutureBase, state: FutureState) =
   # 2. `fut.state` is checked by `checkFinished()`.
   fut.internalState = state
   when chronosFuturesInstrumentation:
-    if not(isNil(futures.onFutureStop)):
-      futures.onFutureStop(fut)
+    if not isNil(onFutureEvent):
+      onFutureEvent(fut, state)
   when chronosStrictFutureAccess:
     doAssert fut.internalCancelcb == nil or state != FutureState.Cancelled
   fut.internalCancelcb = nil # release cancellation callback memory
@@ -214,9 +214,6 @@ proc cancel(future: FutureBase, loc: ptr SrcLoc): bool =
   ## not return ``true`` (unless the Future was already cancelled).
   if future.finished():
     return false
-
-  when chronosFuturesInstrumentation:
-    if not(isNil(onFutureStop)): onFutureStop(future)
 
   if not(isNil(future.internalChild)):
     # If you hit this assertion, you should have used the `CancelledError`
@@ -320,13 +317,21 @@ proc futureContinue*(fut: FutureBase) {.raises: [], gcsafe.} =
   template iterate =
     while true:
       when chronosFuturesInstrumentation:
-        if not(isNil(futures.onFutureRunning)):
-          futures.onFutureRunning(fut)
+        if not isNil(onFutureExecEvent):
+          onFutureExecEvent(fut, Running)
+
       # Call closure to make progress on `fut` until it reaches `yield` (inside
       # `await` typically) or completes / fails / is cancelled
       next = fut.internalClosure(fut)
+
       if fut.internalClosure.finished(): # Reached the end of the transformed proc
         break
+
+      # If we got thus far it means the future still has work to do, so we 
+      # issue a pause.
+      when chronosFuturesInstrumentation:
+        if not isNil(onFutureExecEvent):
+          onFutureExecEvent(fut, Paused)
 
       if next == nil:
         raiseAssert "Async procedure (" & ($fut.location[LocationKind.Create]) &

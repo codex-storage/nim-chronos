@@ -94,11 +94,11 @@ when chronosFutureTracking:
   var futureList* {.threadvar.}: FutureList
 
 when chronosFuturesInstrumentation:
-  var
-    onFutureCreate*: proc (fut: FutureBase) {.gcsafe, nimcall, raises: [].}
-    onFutureRunning*: proc (fut: FutureBase) {.gcsafe, nimcall, raises: [].}
-    onFuturePause*: proc (fut, child: FutureBase) {.gcsafe, nimcall, raises: [].}
-    onFutureStop*: proc (fut: FutureBase) {.gcsafe, nimcall, raises: [].}
+  type FutureExecutionState* {.pure.} = enum 
+    Running, Paused
+
+  var onFutureEvent* {.threadvar.}: proc (fut: FutureBase, state: FutureState): void {.nimcall, gcsafe, raises: [].}
+  var onFutureExecEvent* {.threadvar.}: proc(fut: FutureBase, state: FutureExecutionState): void {.nimcall, gcsafe, raises: [].}
 
 # Internal utilities - these are not part of the stable API
 proc internalInitFutureBase*(
@@ -129,9 +129,8 @@ proc internalInitFutureBase*(
       futureList.count.inc()
 
   when chronosFuturesInstrumentation:
-    if not(isNil(onFutureCreate)):
-      onFutureCreate(fut)
-
+    if not isNil(onFutureEvent):
+      onFutureEvent(fut, state)
 
 # Public API
 template init*[T](F: type Future[T], fromProc: static[string] = ""): Future[T] =
