@@ -12,17 +12,21 @@ type
     Failed,
 
   Event* = object
-    futureId*: uint
-    location*: SrcLoc
+    future: FutureBase
     newState*: ExtendedFutureState
     timestamp*: Moment
   
 var handleFutureEvent* {.threadvar.}: proc (event: Event) {.nimcall, gcsafe, raises: [].}
 
+proc `location`*(self: Event): SrcLoc =
+  self.future.internalLocation[Create][]
+
+proc `futureId`*(self: Event): uint =
+  self.future.id
+
 proc mkEvent(future: FutureBase, state: ExtendedFutureState): Event =
   Event(
-    futureId: future.id,
-    location: future.internalLocation[Create][],
+    future: future,
     newState: state,
     timestamp: Moment.now(),
   )

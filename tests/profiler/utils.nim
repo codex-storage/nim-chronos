@@ -39,6 +39,7 @@ proc recordSegment*(segment: string) =
 
 proc clearRecording*(): void =
   recording = @[]
+  rawRecording = @[]
 
 proc installCallbacks*() =
   assert not installed, "Callbacks already installed"
