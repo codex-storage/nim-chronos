@@ -1,3 +1,4 @@
+import ".."/timer
 import ".."/futures
 import ".."/srcloc
 
@@ -14,38 +15,18 @@ type
     futureId*: uint
     location*: SrcLoc
     newState*: ExtendedFutureState
+    timestamp*: Moment
   
-  RunningFuture = object
-    event: Event
-    notNil: bool
-    
-var running* {.threadvar.}: RunningFuture
 var handleFutureEvent* {.threadvar.}: proc (event: Event) {.nimcall, gcsafe, raises: [].}
 
-proc dispatch(future: FutureBase, state: ExtendedFutureState) =
-  let event = Event(
+proc mkEvent(future: FutureBase, state: ExtendedFutureState): Event =
+  Event(
     futureId: future.id,
-    location: future.internalLocation[LocationKind.Create][], 
-    newState: state
+    location: future.internalLocation[Create][],
+    newState: state,
+    timestamp: Moment.now(),
   )
-
-  if state != ExtendedFutureState.Running:
-    handleFutureEvent(event)
-    return
-
-  # If we have a running future, then it means this is a child. Emits synthetic
-  # pause event to keep things consistent with thread occupancy semantics.
-  if running.notNil:
-    handleFutureEvent(Event(
-      futureId: running.event.futureId, 
-      location: running.event.location, 
-      newState: Paused
-    ))
-
-  running = RunningFuture(event: event, notNil: true)
   
-  handleFutureEvent(event)
-
 onFutureEvent = proc (future: FutureBase, state: FutureState): void {.nimcall.} =
   {.cast(gcsafe).}:
     let extendedState = case state:
@@ -54,7 +35,8 @@ onFutureEvent = proc (future: FutureBase, state: FutureState): void {.nimcall.} 
       of FutureState.Cancelled: ExtendedFutureState.Cancelled
       of FutureState.Failed: ExtendedFutureState.Failed
 
-    dispatch(future, extendedState)
+    if not isNil(handleFutureEvent):
+      handleFutureEvent(mkEvent(future, extendedState))
 
 onFutureExecEvent = proc (future: FutureBase, state: FutureExecutionState): void {.nimcall.} =
   {.cast(gcsafe).}:
@@ -62,7 +44,8 @@ onFutureExecEvent = proc (future: FutureBase, state: FutureExecutionState): void
       of FutureExecutionState.Running: ExtendedFutureState.Running
       of FutureExecutionState.Paused: ExtendedFutureState.Paused
 
-    dispatch(future, extendedState)
+    if not isNil(handleFutureEvent):
+      handleFutureEvent(mkEvent(future, extendedState))
 
 
 

@@ -326,9 +326,8 @@ proc futureContinue*(fut: FutureBase) {.raises: [], gcsafe.} =
 
       if fut.internalClosure.finished(): # Reached the end of the transformed proc
         break
-
-      # If we got thus far it means the future still has work to do, so we 
-      # issue a pause.
+      
+      # If we got thus far, means the future is paused.
       when chronosFuturesInstrumentation:
         if not isNil(onFutureExecEvent):
           onFutureExecEvent(fut, Paused)

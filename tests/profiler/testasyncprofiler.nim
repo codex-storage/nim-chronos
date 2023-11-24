@@ -3,7 +3,7 @@ import std/os
 import unittest2
 
 import ".."/".."/chronos
-import ".."/".."/chronos/profiler/events
+import ".."/".."/chronos/profiler/[events, metrics]
 
 import ./utils
 
@@ -23,87 +23,141 @@ suite "profiler hooks test suite":
       
     waitFor simple()
 
-    check getRecording().forProcs("simple") == @[
+    check recording == @[
       SimpleEvent(state: Pending, procedure: "simple"),
       SimpleEvent(state: ExtendedFutureState.Running, procedure: "simple"),
       SimpleEvent(state: Completed, procedure: "simple"),
     ]
 
-  # test "should emit correct events for a future with children":
-  #   proc child1() {.async.} =
-  #     os.sleep(1)
+  test "should emit correct events when a single child runs as part of the parent":
 
-  #   proc withChildren() {.async.} =
-  #     await child1()
+    proc withChildren() {.async.} =
+      recordSegment("segment 1")
+      await sleepAsync(10.milliseconds)
+      recordSegment("segment 2")
+      
+    waitFor withChildren()
 
-  #   waitFor withChildren()
 
-  #   check getRecording().forProcs("withChildren", "child1") == @[
-  #     Event(kind: EventKind.Create, procedure: "withChildren"),
-  #     Event(kind: EventKind.Run, procedure: "withChildren"),
-  #     Event(kind: EventKind.Create, procedure: "child1"),
-  #     Event(kind: EventKind.Pause, procedure: "withChildren"),
-  #     Event(kind: EventKind.Run, procedure: "child1"),
-  #     Event(kind: EventKind.Complete, procedure: "child1"),
-  #     Event(kind: EventKind.Run, procedure: "withChildren"),
-  #     Event(kind: EventKind.Complete, procedure: "withChildren"),
-  #   ]
+    check recording == @[
+      SimpleEvent(state: Pending, procedure: "withChildren"),
+      SimpleEvent(state: ExtendedFutureState.Running, procedure: "withChildren"),
+      SimpleEvent(state: ExtendedFutureState.Running, procedure: "segment 1"),
+      SimpleEvent(state: ExtendedFutureState.Pending, procedure: "chronos.sleepAsync(Duration)"),
+      SimpleEvent(state: Paused, procedure: "withChildren"),
+      SimpleEvent(state: Completed, procedure: "chronos.sleepAsync(Duration)"),
+      SimpleEvent(state: ExtendedFutureState.Running, procedure: "withChildren"),
+      SimpleEvent(state: ExtendedFutureState.Running, procedure: "segment 2"),
+      SimpleEvent(state: Completed, procedure: "withChildren"),
+    ]
 
-  # test "should emit correct events for a future with timers":
-  #   proc withChildren() {.async.} =
-  #     await sleepAsync(1.milliseconds)
+  test "should emit correct events when a nested child pauses execution":
+    proc child2() {.async.} =
+      await sleepAsync(10.milliseconds)
+      await sleepAsync(10.milliseconds)
 
-  #   waitFor withChildren()
+    proc child1() {.async.} =
+      await child2()
 
-  #   check getRecording().forProcs(
-  #       "withChildren", "chronos.sleepAsync(Duration)") == @[
-  #     Event(kind: EventKind.Create, procedure: "withChildren"),
-  #     Event(kind: EventKind.Run, procedure: "withChildren"),
-  #     Event(kind: EventKind.Pause, procedure: "withChildren"),
-  #     Event(kind: EventKind.Create, procedure: "chronos.sleepAsync(Duration)"),
-  #     # Timers don't "run"
-  #     Event(kind: EventKind.Complete, procedure: "chronos.sleepAsync(Duration)"),
-  #     Event(kind: EventKind.Run, procedure: "withChildren"),
-  #     Event(kind: EventKind.Complete, procedure: "withChildren"),
-  #   ]
+    proc withChildren() {.async.} =
+      recordSegment("segment 1")
+      await child1()
+      recordSegment("segment 2")
+            
+    waitFor withChildren()
 
-  # test "should emit correct events when futures are canceled":
-  #   proc withCancellation() {.async.} =
-  #     let f = sleepyHead()
-  #     f.cancel()
+    check recording == @[
+      # First iteration of parent and each child
+      SimpleEvent(state: Pending, procedure: "withChildren"),
+      SimpleEvent(state: ExtendedFutureState.Running, procedure: "withChildren"),
+      SimpleEvent(state: ExtendedFutureState.Running, procedure: "segment 1"),
+      SimpleEvent(state: ExtendedFutureState.Pending, procedure: "child1"),
+      SimpleEvent(state: ExtendedFutureState.Running, procedure: "child1"),
+      SimpleEvent(state: ExtendedFutureState.Pending, procedure: "child2"),
+      SimpleEvent(state: ExtendedFutureState.Running, procedure: "child2"),
+      SimpleEvent(state: ExtendedFutureState.Pending, procedure: "chronos.sleepAsync(Duration)"),
+      SimpleEvent(state: ExtendedFutureState.Paused, procedure: "child2"),
+      SimpleEvent(state: ExtendedFutureState.Paused, procedure: "child1"),
+      SimpleEvent(state: ExtendedFutureState.Paused, procedure: "withChildren"),
 
-  #   proc sleepyHead() {.async.} =
-  #     await sleepAsync(10.minutes)
+      # Second iteration of child2
+      SimpleEvent(state: ExtendedFutureState.Completed, procedure: "chronos.sleepAsync(Duration)"),
+      SimpleEvent(state: ExtendedFutureState.Running, procedure: "child2"),
+      SimpleEvent(state: ExtendedFutureState.Pending, procedure: "chronos.sleepAsync(Duration)"),
+      SimpleEvent(state: ExtendedFutureState.Paused, procedure: "child2"),
+      SimpleEvent(state: ExtendedFutureState.Completed, procedure: "chronos.sleepAsync(Duration)"),
+      SimpleEvent(state: ExtendedFutureState.Running, procedure: "child2"),
+      SimpleEvent(state: ExtendedFutureState.Completed, procedure: "child2"),
 
-  #   waitFor withCancellation()
+      # Second iteration child1
+      SimpleEvent(state: ExtendedFutureState.Running, procedure: "child1"),
+      SimpleEvent(state: ExtendedFutureState.Completed, procedure: "child1"),
 
-  #   check getRecording().forProcs("sleepyHead", "withCancellation") == @[
-  #     Event(kind: EventKind.Create, procedure: "withCancellation"),
-  #     Event(kind: EventKind.Create, procedure: "sleepyHead"),
-  #     Event(kind: EventKind.Run, procedure: "sleepyHead"),
-  #   ]
+      # Second iteration of parent
+      SimpleEvent(state: ExtendedFutureState.Running, procedure: "withChildren"),
+      SimpleEvent(state: ExtendedFutureState.Running, procedure: "segment 2"),
+      SimpleEvent(state: ExtendedFutureState.Completed, procedure: "withChildren"),
+    ]
 
-# type
-#   FakeFuture = object
-#     id: uint
-#     internalLocation*: array[LocationKind, ptr SrcLoc]
 
-# suite "asyncprofiler metrics":
+suite "profiler metrics test suite":
+  
+    setup:
+      installCallbacks()
 
-#   test "should not keep metrics for a pending future in memory after it completes":
+    teardown:
+      clearRecording()
+      revertCallbacks()
+      resetTime()
+  
+    test "should compute correct times for a simple future":
 
-#     var fakeLoc =  SrcLoc(procedure: "foo", file: "foo.nim", line: 1)
-#     let future = FakeFuture(
-#       id: 1,
-#       internalLocation:  [
-#       LocationKind.Create: addr fakeLoc,
-#       LocationKind.Finish: addr fakeLoc,
-#     ])
+      var metrics = ProfilerMetrics()
 
-#     var profiler = AsyncProfiler[FakeFuture]()
+      proc simple() {.async.} =
+        advanceTime(50.milliseconds)
+        
+      waitFor simple()
 
-#     profiler.handleFutureCreate(future)
-#     profiler.handleFutureComplete(future)
+      metrics.processAllEvents(rawRecording)
 
-#     check len(profiler.getPerFutureMetrics()) == 0
+      let simpleMetrics = metrics.forProc("simple")
+      
+      check simpleMetrics.execTime == 50.milliseconds
+      check simpleMetrics.wallClockTime == 50.milliseconds
 
+
+    # test "should compute correct times when a single child runs as part of the parent":
+
+    #   var metrics = ProfilerMetrics()
+
+    #   proc child1() {.async.} = 
+    #     advanceTime(10.milliseconds)
+
+    #   proc withChildren() {.async.} =
+    #     advanceTime(10.milliseconds)
+    #     await child1()
+    #     advanceTime(10.milliseconds)
+        
+    #   waitFor withChildren()
+
+    #   metrics.processAllEvents(rawRecording)
+     
+    #   let withChildrenMetrics = metrics.forProc("withChildren")
+    #   let child1Metrics = metrics.forProc("child1")
+
+    #   check withChildrenMetrics.execTime == 20.milliseconds
+    #   check withChildrenMetrics.childrenExecTime == 10.milliseconds
+    #   check withChildrenMetrics.wallClockTime == 30.milliseconds
+
+    #   check child1Metrics.execTime == 10.milliseconds
+    #   check child1Metrics.wallClockTime == 10.milliseconds 
+  
+#     # test "should emit correct metrics when a single child runs as part of the parent":
+  
+#     #   proc withChildren() {.async.} =
+#     #     recordSegment("segment 1")
+#     #     await sleepAsync(10.milliseconds)
+#     #     recordSegment("segment 2")
+        
+#     #   waitFor withChildren()

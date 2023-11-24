@@ -1,8 +1,8 @@
-import std/sequtils
-import std/sugar
+import std/with
 
 import ".."/".."/chronos
 import ".."/".."/chronos/profiler/events
+import ".."/".."/chronos/profiler/metrics
 
 type
   SimpleEvent* = object
@@ -12,14 +12,9 @@ type
 # XXX this is sort of bad cause we get global state all over, but the fact we
 #   can't use closures on callbacks and that callbacks themselves are just
 #   global vars means we can't really do much better for now.
-
-var recording: seq[SimpleEvent]
-
-proc forProcs*(self: seq[SimpleEvent], procs: varargs[string]): seq[SimpleEvent] =
-  collect:
-    for e in self:
-      if e.procedure in procs:
-        e
+var recording*: seq[SimpleEvent]
+var rawRecording*: seq[Event]
+var fakeTime*: Moment = Moment.now()
 
 # FIXME bad, this needs to be refactored into a callback interface for the profiler.
 var oldHandleFutureEvent: proc(event: Event) {.nimcall, gcsafe, raises: [].} = nil
@@ -28,15 +23,22 @@ var installed: bool = false
 proc recordEvent(event: Event) {.nimcall, gcsafe, raises: [].} =
   {.cast(gcsafe).}:
     recording.add(
-      SimpleEvent(
-        procedure: $(event.location.procedure),
-        state: event.newState
-      )
-    )
+      SimpleEvent(procedure: $event.location.procedure, state: event.newState))
 
-proc getRecording*(): seq[SimpleEvent] = {.cast(gcsafe).}: recording
+    var timeShifted = event
+    timeshifted.timestamp = fakeTime
 
-proc clearRecording*(): void = recording = @[]
+    rawRecording.add(timeShifted)
+
+proc recordSegment*(segment: string) =
+  {.cast(gcsafe).}:
+    recording.add(SimpleEvent(
+      procedure: segment,
+      state: ExtendedFutureState.Running
+    ))
+
+proc clearRecording*(): void =
+  recording = @[]
 
 proc installCallbacks*() =
   assert not installed, "Callbacks already installed"
@@ -51,3 +53,13 @@ proc revertCallbacks*() =
   handleFutureEvent = oldHandleFutureEvent
   installed = false
 
+proc forProc*(self: var ProfilerMetrics, procedure: string): AggregateFutureMetrics =
+  for (key, aggMetrics) in self.totals.mpairs:
+    if key.procedure == procedure:
+      return aggMetrics
+
+proc resetTime*() =
+  fakeTime = Moment.now()
+
+proc advanceTime*(duration: Duration) =
+  fakeTime += duration
