@@ -65,3 +65,27 @@ suite "profiler metrics test suite":
 
       check childMetrics.execTime == 10.milliseconds
       check childMetrics.wallClockTime == 10.milliseconds
+
+    test "should compute correct times when there is a single non-blocking child":
+      proc child() {.async.} =
+        advanceTime(10.milliseconds)
+        await advanceTimeAsync(50.milliseconds)
+        advanceTime(10.milliseconds)
+
+      proc parent() {.async.} =
+        advanceTime(10.milliseconds)
+        await child()
+        advanceTime(10.milliseconds)
+
+      waitFor parent()
+
+      var metrics = recordedMetrics()
+      let parentMetrics = metrics.forProc("parent")
+      let childMetrics = metrics.forProc("child")
+
+      check parentMetrics.execTime == 20.milliseconds
+      check parentMetrics.childrenExecTime == 20.milliseconds
+      check parentMetrics.wallClockTime == 90.milliseconds
+
+      check childMetrics.execTime == 20.milliseconds
+      check childMetrics.wallClockTime == 70.milliseconds
