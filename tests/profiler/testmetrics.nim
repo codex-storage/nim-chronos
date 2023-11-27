@@ -44,7 +44,23 @@ suite "profiler metrics test suite":
       check simpleMetrics.execTime == 20.milliseconds
       check simpleMetrics.wallClockTime == 70.milliseconds
 
-    test "should compute correct times whent there is a single blocking child":
+    test "should compute correct times for a non-blocking future with multiple pauses":
+      proc simple {.async.} =
+        advanceTime(10.milliseconds)
+        await advanceTimeAsync(50.milliseconds)
+        advanceTime(10.milliseconds)
+        await advanceTimeAsync(50.milliseconds)
+        advanceTime(10.milliseconds)
+
+      waitFor simple()
+
+      var metrics = recordedMetrics()
+      let simpleMetrics = metrics.forProc("simple")
+
+      check simpleMetrics.execTime == 30.milliseconds
+      check simpleMetrics.wallClockTime == 130.milliseconds
+
+    test "should compute correct times when there is a single blocking child":
       proc child() {.async.} = 
         advanceTime(10.milliseconds)
 
@@ -65,6 +81,7 @@ suite "profiler metrics test suite":
 
       check childMetrics.execTime == 10.milliseconds
       check childMetrics.wallClockTime == 10.milliseconds
+      check childMetrics.childrenExecTime == ZeroDuration
 
     test "should compute correct times when there is a single non-blocking child":
       proc child() {.async.} =
@@ -89,3 +106,102 @@ suite "profiler metrics test suite":
 
       check childMetrics.execTime == 20.milliseconds
       check childMetrics.wallClockTime == 70.milliseconds
+      check childMetrics.childrenExecTime == ZeroDuration
+
+    test "should compute correct times when there are multiple blocking and non-blocking children":
+      proc blockingChild() {.async.} = 
+        advanceTime(10.milliseconds)
+
+      proc nonblockingChild() {.async.} =
+        advanceTime(10.milliseconds)
+        await advanceTimeAsync(20.milliseconds)
+        advanceTime(10.milliseconds)
+
+      proc parent() {.async.} =
+        advanceTime(10.milliseconds)
+        await blockingChild()
+        advanceTime(10.milliseconds)
+        await nonblockingChild()
+        advanceTime(10.milliseconds)
+        await blockingChild()
+        advanceTime(10.milliseconds)
+        await nonblockingChild()
+        advanceTime(10.milliseconds)
+
+      waitFor parent()
+
+      var metrics = recordedMetrics()
+
+      let parentMetrics = metrics.forProc("parent")
+      let blockingChildMetrics = metrics.forProc("blockingChild")
+      let nonblockingChildMetrics = metrics.forProc("nonblockingChild")
+
+      check parentMetrics.execTime == 50.milliseconds
+      check parentMetrics.childrenExecTime == 60.milliseconds
+      check parentMetrics.wallClockTime == 150.milliseconds
+
+      check blockingChildMetrics.execTime == 20.milliseconds
+      check blockingChildMetrics.wallClockTime == 20.milliseconds
+      check blockingChildMetrics.childrenExecTime == ZeroDuration
+      
+      check nonblockingChildMetrics.execTime == 40.milliseconds
+      check nonblockingChildMetrics.wallClockTime == 80.milliseconds
+      check nonblockingChildMetrics.childrenExecTime == ZeroDuration
+
+    test "should compute correct times when a child throws an exception":
+      proc child() {.async.} =
+        advanceTime(10.milliseconds)
+        raise newException(Exception, "child exception")
+
+      proc parent() {.async.} =
+        advanceTime(10.milliseconds)
+        try:
+          await child()
+        except:
+          discard
+        advanceTime(10.milliseconds)
+
+      waitFor parent()
+
+      var metrics = recordedMetrics()
+      let parentMetrics = metrics.forProc("parent")
+      let childMetrics = metrics.forProc("child")
+
+      check parentMetrics.execTime == 20.milliseconds
+      check parentMetrics.childrenExecTime == 10.milliseconds
+      check parentMetrics.wallClockTime == 30.milliseconds
+
+      check childMetrics.execTime == 10.milliseconds
+      check childMetrics.wallClockTime == 10.milliseconds
+      check childMetrics.childrenExecTime == ZeroDuration
+
+    test "should compute correct times when a child gets cancelled":
+      proc child() {.async.} =
+        advanceTime(10.milliseconds)
+        await sleepAsync(1.hours)
+
+      proc parent() {.async.} =
+        advanceTime(10.milliseconds)
+        # This is sort of subtle: we simulate that parent runs for 10
+        # milliseconds before actually cancelling the child. This renders the
+        # test case less trivial as those 10 milliseconds should be billed as 
+        # wallclock time at the child, causing the child's exec time and its
+        # wallclock time to differ.
+        let child = child()
+        advanceTime(10.milliseconds)
+        await child.cancelAndWait()
+        advanceTime(10.milliseconds)
+
+      waitFor parent()
+
+      var metrics = recordedMetrics()
+      let parentMetrics = metrics.forProc("parent")
+      let childMetrics = metrics.forProc("child")
+
+      check parentMetrics.execTime == 30.milliseconds
+      check parentMetrics.childrenExecTime == 10.milliseconds
+      check parentMetrics.wallClockTime == 40.milliseconds
+
+      check childMetrics.execTime == 10.milliseconds
+      check childMetrics.wallClockTime == 20.milliseconds
+      check childMetrics.childrenExecTime == ZeroDuration

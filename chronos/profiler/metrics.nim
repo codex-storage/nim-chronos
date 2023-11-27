@@ -108,9 +108,10 @@ proc processEvent*(self: var ProfilerMetrics, event: Event): void =
   of Pending: self.futureCreated(event)
   of Running: self.futureRunning(event)
   of Paused: self.futurePaused(event)
+  # Completion, failure and cancellation are currently handled the same way.
   of Completed: self.futureCompleted(event)
-  else: 
-    assert false, "Unimplemented"
+  of Failed: self.futureCompleted(event)
+  of Cancelled: self.futureCompleted(event)
 
 proc processAllEvents*(self: var ProfilerMetrics, events: seq[Event]): void =
   for event in events:
