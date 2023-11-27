@@ -3,7 +3,7 @@ import std/os
 import unittest2
 
 import ".."/".."/chronos
-import ".."/".."/chronos/profiler/[events, metrics]
+import ".."/".."/chronos/profiler
 
 import ./utils
 
@@ -53,11 +53,16 @@ suite "profiler hooks test suite":
 
   test "should emit correct events when a nested child pauses execution":
     proc child2() {.async.} =
+      recordSegment("segment 21")
       await sleepAsync(10.milliseconds)
+      recordSegment("segment 22")
       await sleepAsync(10.milliseconds)
+      recordSegment("segment 23")
 
     proc child1() {.async.} =
+      recordSegment("segment 11")
       await child2()
+      recordSegment("segment 12")
 
     proc withChildren() {.async.} =
       recordSegment("segment 1")
@@ -73,8 +78,10 @@ suite "profiler hooks test suite":
       SimpleEvent(state: ExtendedFutureState.Running, procedure: "segment 1"),
       SimpleEvent(state: ExtendedFutureState.Pending, procedure: "child1"),
       SimpleEvent(state: ExtendedFutureState.Running, procedure: "child1"),
+      SimpleEvent(state: ExtendedFutureState.Running, procedure: "segment 11"),
       SimpleEvent(state: ExtendedFutureState.Pending, procedure: "child2"),
       SimpleEvent(state: ExtendedFutureState.Running, procedure: "child2"),
+      SimpleEvent(state: ExtendedFutureState.Running, procedure: "segment 21"),
       SimpleEvent(state: ExtendedFutureState.Pending, procedure: "chronos.sleepAsync(Duration)"),
       SimpleEvent(state: ExtendedFutureState.Paused, procedure: "child2"),
       SimpleEvent(state: ExtendedFutureState.Paused, procedure: "child1"),
@@ -83,14 +90,17 @@ suite "profiler hooks test suite":
       # Second iteration of child2
       SimpleEvent(state: ExtendedFutureState.Completed, procedure: "chronos.sleepAsync(Duration)"),
       SimpleEvent(state: ExtendedFutureState.Running, procedure: "child2"),
+      SimpleEvent(state: ExtendedFutureState.Running, procedure: "segment 22"),
       SimpleEvent(state: ExtendedFutureState.Pending, procedure: "chronos.sleepAsync(Duration)"),
       SimpleEvent(state: ExtendedFutureState.Paused, procedure: "child2"),
       SimpleEvent(state: ExtendedFutureState.Completed, procedure: "chronos.sleepAsync(Duration)"),
       SimpleEvent(state: ExtendedFutureState.Running, procedure: "child2"),
+      SimpleEvent(state: ExtendedFutureState.Running, procedure: "segment 23"),
       SimpleEvent(state: ExtendedFutureState.Completed, procedure: "child2"),
 
       # Second iteration child1
       SimpleEvent(state: ExtendedFutureState.Running, procedure: "child1"),
+      SimpleEvent(state: ExtendedFutureState.Running, procedure: "segment 12"),
       SimpleEvent(state: ExtendedFutureState.Completed, procedure: "child1"),
 
       # Second iteration of parent

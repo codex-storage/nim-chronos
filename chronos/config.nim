@@ -49,7 +49,7 @@ when (NimMajor, NimMinor) >= (1, 4):
       ## using `AsyncProcessOption.EvalCommand` and API calls such as
       ## ``execCommand(command)`` and ``execCommandEx(command)``.
 
-    chronosFuturesInstrumentation* {.booldefine.} = defined(chronosFuturesInstrumentation)
+    chronosProfiling* {.booldefine.} = defined(chronosProfiling)
       ## Enable instrumentation callbacks which are called at
       ## the start, pause, or end of a Future's lifetime.
       ## Useful for implementing metrics or other instrumentation.
@@ -66,7 +66,7 @@ else:
     chronosFutureTracking*: bool =
       defined(chronosDebug) or defined(chronosFutureTracking)
     chronosDumpAsync*: bool = defined(nimDumpAsync)
-    chronosFuturesInstrumentation*: bool = defined(chronosFuturesInstrumentation)
+    chronosProfiling*: bool = defined(chronosProfiling)
     chronosProcShell* {.strdefine.}: string =
       when defined(windows):
         "cmd.exe"

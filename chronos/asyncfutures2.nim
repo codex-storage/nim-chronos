@@ -132,7 +132,7 @@ proc finish(fut: FutureBase, state: FutureState) =
   # 1. `finish()` is a private procedure and `state` is under our control.
   # 2. `fut.state` is checked by `checkFinished()`.
   fut.internalState = state
-  when chronosFuturesInstrumentation:
+  when chronosProfiling:
     if not isNil(onFutureEvent):
       onFutureEvent(fut, state)
   when chronosStrictFutureAccess:
@@ -316,7 +316,7 @@ proc futureContinue*(fut: FutureBase) {.raises: [], gcsafe.} =
   var next: FutureBase
   template iterate =
     while true:
-      when chronosFuturesInstrumentation:
+      when chronosProfiling:
         if not isNil(onFutureExecEvent):
           onFutureExecEvent(fut, Running)
 
@@ -328,7 +328,7 @@ proc futureContinue*(fut: FutureBase) {.raises: [], gcsafe.} =
         break
       
       # If we got thus far, means the future is paused.
-      when chronosFuturesInstrumentation:
+      when chronosProfiling:
         if not isNil(onFutureExecEvent):
           onFutureExecEvent(fut, Paused)
 

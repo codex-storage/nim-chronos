@@ -1,8 +1,5 @@
-import std/with
-
 import ".."/".."/chronos
-import ".."/".."/chronos/profiler/events
-import ".."/".."/chronos/profiler/metrics
+import ".."/".."/chronos/profiler
 
 type
   SimpleEvent* = object
@@ -26,7 +23,7 @@ proc recordEvent(event: Event) {.nimcall, gcsafe, raises: [].} =
       SimpleEvent(procedure: $event.location.procedure, state: event.newState))
 
     var timeShifted = event
-    timeshifted.timestamp = fakeTime
+    timeShifted.timestamp = fakeTime
 
     rawRecording.add(timeShifted)
 
@@ -43,6 +40,9 @@ proc clearRecording*(): void =
 
 proc installCallbacks*() =
   assert not installed, "Callbacks already installed"
+
+  enableEventCallbacks()
+
   oldHandleFutureEvent = handleFutureEvent
   handleFutureEvent = recordEvent
 

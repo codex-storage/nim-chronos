@@ -93,7 +93,7 @@ when chronosFutureTracking:
 
   var futureList* {.threadvar.}: FutureList
 
-when chronosFuturesInstrumentation:
+when chronosProfiling:
   type FutureExecutionState* {.pure.} = enum 
     Running, Paused
 
@@ -128,7 +128,7 @@ proc internalInitFutureBase*(
         futureList.head = fut
       futureList.count.inc()
 
-  when chronosFuturesInstrumentation:
+  when chronosProfiling:
     if not isNil(onFutureEvent):
       onFutureEvent(fut, state)
 

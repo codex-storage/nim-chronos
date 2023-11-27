@@ -48,3 +48,11 @@ task test_libbacktrace, "test with libbacktrace":
 
   for args in allArgs:
     run args, "tests/testall"
+
+task test_profiler, "test with profiler instrumentation":
+  var allArgs = @[
+      "-d:release -d:chronosProfiling",
+    ]
+
+  for args in allArgs:
+    run args, "tests/testall"
