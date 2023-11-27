@@ -6,8 +6,8 @@ when chronosProfiling:
 
   export futures, events, metrics
 
-  when not defined(chronosFutureId):
-    {.error "chronosProfiling requires chronosFutureId to be enabled".}
+  when not chronosFutureId:
+    {.error: "chronosProfiling requires chronosFutureId to be enabled".}
 
   var futureMetrics {.threadvar.}: ProfilerMetrics 
 
@@ -19,7 +19,7 @@ when chronosProfiling:
     onFutureEvent = handleFutureEventCB
     onFutureExecEvent = handleFutureExecEventCB
     
-  proc enable*() = 
+  proc enableProfiling*() =
     ## Enables profiling on the current event loop.
     if not isNil(handleFutureEvent): return
 

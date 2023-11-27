@@ -205,3 +205,38 @@ suite "profiler metrics test suite":
       check childMetrics.execTime == 10.milliseconds
       check childMetrics.wallClockTime == 20.milliseconds
       check childMetrics.childrenExecTime == ZeroDuration
+
+    test "should compute the correct number of times a proc gets called":
+      proc child() {.async.} = discard
+
+      proc parent() {.async.} =
+        for i in 1..10:
+          await child()
+
+      waitFor parent()
+
+      var metrics = recordedMetrics()
+      let parentMetrics = metrics.forProc("parent")
+      let childMetrics = metrics.forProc("child")
+
+      check parentMetrics.callCount == 1
+      check childMetrics.callCount == 10
+
+    test "should compute the maximum execution time for a proc, out of all calls":
+      var execTimes = @[10.milliseconds, 50.milliseconds, 10.milliseconds]
+
+      proc child(d: Duration) {.async.} =
+        advanceTime(d)
+
+      proc parent() {.async.} =
+        for d in execTimes:
+          await child(d)
+
+      waitFor parent()
+
+      var metrics = recordedMetrics()
+      let parentMetrics = metrics.forProc("parent")
+      let childMetrics = metrics.forProc("child")
+
+      check parentMetrics.execTimeMax == ZeroDuration
+      check childMetrics.execTimeMax == 50.milliseconds

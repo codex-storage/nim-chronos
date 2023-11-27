@@ -9,8 +9,10 @@ export timer, tables, srcloc
 type
   AggregateFutureMetrics* = object
     execTime*: Duration
+    execTimeMax*: Duration
     childrenExecTime*: Duration
     wallClockTime*: Duration
+    callCount*: uint
 
   RunningFuture* = object
     state*: ExtendedFutureState
@@ -92,7 +94,11 @@ proc futureCompleted(self: var ProfilerMetrics, event: Event): void =
       self.totals[location] = AggregateFutureMetrics()
 
     self.totals.withValue(location, aggMetrics):
-      aggMetrics.execTime += metrics.partialExecTime - metrics.partialChildrenExecOverlap
+      let execTime = metrics.partialExecTime - metrics.partialChildrenExecOverlap
+      
+      aggMetrics.callCount.inc()
+      aggMetrics.execTime += execTime
+      aggMetrics.execTimeMax = max(aggMetrics.execTimeMax, execTime)
       aggMetrics.childrenExecTime += metrics.partialChildrenExecTime
       aggMetrics.wallClockTime += event.timestamp - metrics.created
 
