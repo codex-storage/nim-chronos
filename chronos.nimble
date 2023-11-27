@@ -51,7 +51,7 @@ task test_libbacktrace, "test with libbacktrace":
 
 task test_profiler, "test with profiler instrumentation":
   var allArgs = @[
-      "-d:release -d:chronosProfiling",
+      "-d:release -d:chronosFutureId -d:chronosProfiling",
     ]
 
   for args in allArgs:

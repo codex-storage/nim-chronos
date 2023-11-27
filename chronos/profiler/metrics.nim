@@ -25,10 +25,15 @@ type
     parent*: Option[uint]
     pauses*: uint
 
+  MetricsTotals* = Table[SrcLoc, AggregateFutureMetrics]
+
   ProfilerMetrics* = object
-    running: seq[uint]
+    callStack: seq[uint]
     partials: Table[uint, RunningFuture]
-    totals*: Table[SrcLoc, AggregateFutureMetrics]
+    totals*: MetricsTotals
+
+proc `execTimeWithChildren`*(self: AggregateFutureMetrics): Duration =
+  self.execTime + self.childrenExecTime
 
 proc push(self: var seq[uint], value: uint): void = self.add(value)
 
@@ -49,7 +54,7 @@ proc futureCreated(self: var ProfilerMetrics, event: Event): void =
   )
 
 proc bindParent(self: var ProfilerMetrics, metrics: ptr RunningFuture): void =
-  let current = self.running.peek()
+  let current = self.callStack.peek()
   if current.isNone:
     return
 
@@ -64,14 +69,14 @@ proc futureRunning(self: var ProfilerMetrics, event: Event): void =
     assert metrics.state == Pending or metrics.state == Paused
 
     self.bindParent(metrics)
-    self.running.push(event.futureId)
+    self.callStack.push(event.futureId)
 
     metrics.lastStarted = event.timestamp
     metrics.state = Running
 
 proc futurePaused(self: var ProfilerMetrics, event: Event): void = 
   assert self.partials.hasKey(event.futureId)
-  assert event.futureId == self.running.pop()
+  assert event.futureId == self.callStack.pop()
 
   self.partials.withValue(event.futureId, metrics):
     assert metrics.state == Running
