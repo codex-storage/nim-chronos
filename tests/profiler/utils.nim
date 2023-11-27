@@ -64,3 +64,21 @@ proc resetTime*() =
 
 proc advanceTime*(duration: Duration) =
   fakeTime += duration
+
+proc advanceTimeAsync*(duration: Duration): Future[void] = 
+  # Simulates a non-blocking operation that takes the provided duration to 
+  # complete.
+  var retFuture = newFuture[void]("advanceTimeAsync")
+  var timer: TimerCallback
+
+  proc completion(data: pointer) {.gcsafe.} =
+    if not(retFuture.finished()):
+      advanceTime(duration)
+      retFuture.complete()
+
+  # The actual value for the timer is irrelevant, the important thing is that 
+  # this causes the parent to pause before we advance time.
+  timer = setTimer(Moment.fromNow(10.milliseconds), 
+    completion, cast[pointer](retFuture))
+
+  return retFuture
