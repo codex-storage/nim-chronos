@@ -45,8 +45,11 @@ proc pop(self: var seq[uint]): uint =
 proc peek(self: var seq[uint]): Option[uint] =
   if self.len == 0: none(uint) else: self[^1].some
 
+proc `$`(location: SrcLoc): string =
+  $location.procedure & "[" & $location.file & ":" & $location.line & "]"
+
 proc futureCreated(self: var ProfilerMetrics, event: Event): void =
-  assert not self.partials.hasKey(event.futureId)
+  assert not self.partials.hasKey(event.futureId), $event.location
 
   self.partials[event.futureId] = RunningFuture(
     created: event.timestamp,
@@ -63,10 +66,11 @@ proc bindParent(self: var ProfilerMetrics, metrics: ptr RunningFuture): void =
   metrics.parent = current
 
 proc futureRunning(self: var ProfilerMetrics, event: Event): void = 
-  assert self.partials.hasKey(event.futureId)
+  assert self.partials.hasKey(event.futureId), $event.location
 
   self.partials.withValue(event.futureId, metrics):
-    assert metrics.state == Pending or metrics.state == Paused
+    assert metrics.state == Pending or metrics.state == Paused,
+      $event.location
 
     self.bindParent(metrics)
     self.callStack.push(event.futureId)
@@ -75,11 +79,11 @@ proc futureRunning(self: var ProfilerMetrics, event: Event): void =
     metrics.state = Running
 
 proc futurePaused(self: var ProfilerMetrics, event: Event): void = 
-  assert self.partials.hasKey(event.futureId)
-  assert event.futureId == self.callStack.pop()
+  assert self.partials.hasKey(event.futureId), $event.location
+  assert event.futureId == self.callStack.pop(), $event.location
 
   self.partials.withValue(event.futureId, metrics):
-    assert metrics.state == Running
+    assert metrics.state == Running, $event.location
 
     let segmentExecTime = event.timestamp - metrics.lastStarted
 
