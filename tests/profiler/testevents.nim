@@ -38,7 +38,6 @@ suite "profiler hooks test suite":
       
     waitFor withChildren()
 
-
     check recording == @[
       SimpleEvent(state: Pending, procedure: "withChildren"),
       SimpleEvent(state: ExtendedFutureState.Running, procedure: "withChildren"),
@@ -119,16 +118,21 @@ suite "profiler hooks test suite":
         try:
           return
         finally:
+          recordSegment("segment 1")
           await sleepAsync(10.milliseconds)
+          # both segments must run
+          recordSegment("segment 2")
 
       waitFor withFinally()
 
       check recording == @[
         SimpleEvent(state: Pending, procedure: "withFinally"),
         SimpleEvent(state: ExtendedFutureState.Running, procedure: "withFinally"),
+        SimpleEvent(state: ExtendedFutureState.Running, procedure: "segment 1"),
         SimpleEvent(state: ExtendedFutureState.Pending, procedure: "chronos.sleepAsync(Duration)"),
         SimpleEvent(state: ExtendedFutureState.Paused, procedure: "withFinally"),
         SimpleEvent(state: ExtendedFutureState.Completed, procedure: "chronos.sleepAsync(Duration)"),
         SimpleEvent(state: ExtendedFutureState.Running, procedure: "withFinally"),
-        SimpleEvent(state: ExtendedFutureState.Completed, procedure: "withFinally")
+        SimpleEvent(state: ExtendedFutureState.Running, procedure: "segment 2"),
+        SimpleEvent(state: ExtendedFutureState.Completed, procedure: "withFinally"),
       ]

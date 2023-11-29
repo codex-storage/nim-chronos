@@ -1,10 +1,11 @@
 import std/tables
 import std/options
+import std/sets
 
 import ./events
 import ../[timer, srcloc]
 
-export timer, tables, srcloc
+export timer, tables, sets, srcloc
 
 type
   AggregateFutureMetrics* = object
@@ -12,6 +13,7 @@ type
     execTimeMax*: Duration
     childrenExecTime*: Duration
     wallClockTime*: Duration
+    zombieEventCount*: uint
     callCount*: uint
 
   RunningFuture* = object
@@ -65,8 +67,29 @@ proc bindParent(self: var ProfilerMetrics, metrics: ptr RunningFuture): void =
     assert metrics.parent.get == current.get
   metrics.parent = current
 
-proc futureRunning(self: var ProfilerMetrics, event: Event): void = 
-  assert self.partials.hasKey(event.futureId), $event.location
+proc isZombie(self: var ProfilerMetrics, event: Event): bool =
+  # The first precondition for a zombie future is that it should not have
+  # an entry in the partial metrics table.
+  if self.partials.hasKey(event.futureId):
+    return false
+
+  # The second precondition is that it must have been completed at least once.
+  # Since we're not tracking IDs for individual completed futures cause that 
+  # would use up a lot of memory, we test if at least one future of this "type"
+  # (i.e. at the same location) has been completed. If that's not satisfied,
+  # this positively is a bug.
+  assert self.totals.hasKey(event.location), $event.location
+
+  self.totals.withValue(event.location, aggMetrics):
+    # Count zombie events. We can't tell how many events are issued by a single
+    # zombie future (we think it's one, but who knows) so can't really rely on 
+    # this being a count of the actual zombie futures.
+    aggMetrics.zombieEventCount.inc()
+
+  true
+
+proc futureRunning(self: var ProfilerMetrics, event: Event): void =
+  assert self.partials.hasKey(event.futureId)
 
   self.partials.withValue(event.futureId, metrics):
     assert metrics.state == Pending or metrics.state == Paused,
@@ -79,7 +102,9 @@ proc futureRunning(self: var ProfilerMetrics, event: Event): void =
     metrics.state = Running
 
 proc futurePaused(self: var ProfilerMetrics, event: Event): void = 
-  assert self.partials.hasKey(event.futureId), $event.location
+  # Pause events can come from zombie futures, so we need to check for that.
+  if self.isZombie(event): return
+
   assert event.futureId == self.callStack.pop(), $event.location
 
   self.partials.withValue(event.futureId, metrics):
@@ -93,7 +118,9 @@ proc futurePaused(self: var ProfilerMetrics, event: Event): void =
     metrics.pauses += 1
     metrics.state = Paused
 
-proc futureCompleted(self: var ProfilerMetrics, event: Event): void = 
+proc futureCompleted(self: var ProfilerMetrics, event: Event): void =
+  assert self.partials.hasKey(event.futureId)
+
   self.partials.withValue(event.futureId, metrics):
     if metrics.state == Running:
       self.futurePaused(event)

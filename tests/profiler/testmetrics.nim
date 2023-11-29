@@ -240,3 +240,20 @@ suite "profiler metrics test suite":
 
       check parentMetrics.execTimeMax == ZeroDuration
       check childMetrics.execTimeMax == 50.milliseconds
+
+    test "should count zombie futures and measure their non-zombie execution time":
+      proc zombie() {.async.} =
+        try:
+          advanceTime(10.milliseconds)
+          return
+        finally:
+          advanceTime(10.milliseconds) # this is ran in zombie mode
+          await advanceTimeAsync(10.milliseconds)
+
+      waitFor zombie()
+
+      var metrics = recordedMetrics()
+      var zombieMetrics = metrics.forProc("zombie")
+
+      check zombieMetrics.execTime == 10.milliseconds
+      check zombieMetrics.zombieEventCount == 1
