@@ -15,14 +15,8 @@ when chronosProfiling:
     ## Returns metrics for the current event loop.
     result = futureMetrics
 
-  proc enableEventCallbacks*(): void =
-    onFutureEvent = handleFutureEventCB
-    onFutureExecEvent = handleFutureExecEventCB
-    
+  proc setFutureEventCallback*(): void =
+
   proc enableProfiling*() =
     ## Enables profiling on the current event loop.
-    if not isNil(handleFutureEvent): return
-
-    enableEventCallbacks()
-    handleFutureEvent = proc (e: Event) {.nimcall.} = 
-      futureMetrics.processEvent(e)
+    onFutureEvent = metrics.handleFutureEvent

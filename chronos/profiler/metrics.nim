@@ -7,6 +7,33 @@ import ../[timer, srcloc]
 export timer, tables, srcloc
 
 type
+  Event* = object
+    futureId: uint
+    loc: SrcLoc
+    state: FutureState
+    event*: FutureExecutionEvent
+    timestamp*: Moment
+
+proc processEvent*(self: var ProfilerMetrics, event: Event): void
+
+proc handleFutureEvent*(future: FutureBase,
+                        event: FutureExecutionEvent): void {.nimcall.} =
+  {.cast(gcsafe).}:
+    let extendedState = case state:
+        of Init: ExtendedFutureState.Pending
+        of Run: ExtendedFutureState.Running
+        of Pause: ExtendedFutureState.Paused
+        of Finish: future.internalState.toExtendedEvent()
+
+    processEvent Event(
+        future: future,
+        loc: future.internalLocation[Create][],
+        state: future.internalState,
+        event: event,
+        timestamp: Moment.now()
+    )
+
+type
   AggregateFutureMetrics* = object
     execTime*: Duration
     execTimeMax*: Duration
@@ -119,14 +146,11 @@ proc futureCompleted(self: var ProfilerMetrics, event: Event): void =
     self.partials.del(event.futureId)
 
 proc processEvent*(self: var ProfilerMetrics, event: Event): void =
-  case event.newState:
-  of Pending: self.futureCreated(event)
-  of Running: self.futureRunning(event)
-  of Paused: self.futurePaused(event)
-  # Completion, failure and cancellation are currently handled the same way.
-  of Completed: self.futureCompleted(event)
-  of Failed: self.futureCompleted(event)
-  of Cancelled: self.futureCompleted(event)
+  case event.event:
+  of Init: self.futureCreated(event)
+  of Run: self.futureRunning(event)
+  of Pause: self.futurePaused(event)
+  of Finish: self.futureCompleted(event)
 
 proc processAllEvents*(self: var ProfilerMetrics, events: seq[Event]): void =
   for event in events:
