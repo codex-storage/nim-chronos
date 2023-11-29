@@ -99,12 +99,11 @@ when chronosFutureTracking:
   var futureList* {.threadvar.}: FutureList
 
 when chronosProfiling:
-  type FutureExecutionEvent* {.pure.} = enum 
+  type FutureEvent* {.pure.} = enum 
     Init, Run, Pause, Finish
 
   var onFutureEvent* {.threadvar.}:
-    proc (fut: FutureBase,
-          state: FutureExecutionEvent): void {.nimcall, gcsafe, raises: [].}
+    proc (fut: FutureBase, state: FutureEvent): void {.nimcall, gcsafe, raises: [].}
 
 # Internal utilities - these are not part of the stable API
 proc internalInitFutureBase*(fut: FutureBase, loc: ptr SrcLoc,
