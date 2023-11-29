@@ -4,7 +4,8 @@ import ".."/".."/chronos/profiler
 type
   SimpleEvent* = object
     procedure*: string
-    state*: ExtendedFutureState
+    # state*: FutureState
+    event*: FutureEvent
 
 # XXX this is sort of bad cause we get global state all over, but the fact we
 #   can't use closures on callbacks and that callbacks themselves are just
