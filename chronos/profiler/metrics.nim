@@ -89,7 +89,7 @@ proc isZombie(self: var ProfilerMetrics, event: Event): bool =
   true
 
 proc futureRunning(self: var ProfilerMetrics, event: Event): void =
-  assert self.partials.hasKey(event.futureId)
+  if self.isZombie(event): return
 
   self.partials.withValue(event.futureId, metrics):
     assert metrics.state == Pending or metrics.state == Paused,
@@ -102,7 +102,6 @@ proc futureRunning(self: var ProfilerMetrics, event: Event): void =
     metrics.state = Running
 
 proc futurePaused(self: var ProfilerMetrics, event: Event): void = 
-  # Pause events can come from zombie futures, so we need to check for that.
   if self.isZombie(event): return
 
   assert event.futureId == self.callStack.pop(), $event.location
