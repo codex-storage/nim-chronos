@@ -79,6 +79,11 @@ const
       ""
     ## OS polling engine type which is going to be used by chronos.
 
+  chronosProfiling* {.booldefine.} = defined(chronosProfiling)
+    ## Enable instrumentation callbacks which are called at
+    ## the start, pause, or end of a Future's lifetime.
+    ## Useful for implementing metrics or other instrumentation.
+
 when defined(chronosStrictException):
   {.warning: "-d:chronosStrictException has been deprecated in favor of handleException".}
   # In chronos v3, this setting was used as the opposite of
