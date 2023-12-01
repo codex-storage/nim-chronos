@@ -10,3 +10,4 @@ switch("define", "nimRawSetjmp")
 
 ## REMOVE BEFORE MERGE!
 --d:chronosProfiling
+--d:chronosFutureId

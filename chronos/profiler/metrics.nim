@@ -118,7 +118,7 @@ proc futurePaused(self: var ProfilerMetrics, event: Event): void =
     metrics.state = Paused
 
 proc futureCompleted(self: var ProfilerMetrics, event: Event): void =
-  assert self.partials.hasKey(event.futureId)
+  assert self.partials.hasKey(event.futureId), $event.location
 
   self.partials.withValue(event.futureId, metrics):
     if metrics.state == Running:
