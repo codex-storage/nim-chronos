@@ -93,7 +93,7 @@ proc futureRunning(self: var ProfilerMetrics, event: Event): void =
 
   self.partials.withValue(event.futureId, metrics):
     assert metrics.state == Pending or metrics.state == Paused,
-      $event.location
+      $event.location & " " & $metrics.state
 
     self.bindParent(metrics)
     self.callStack.push(event.futureId)
@@ -107,7 +107,7 @@ proc futurePaused(self: var ProfilerMetrics, event: Event): void =
   assert event.futureId == self.callStack.pop(), $event.location
 
   self.partials.withValue(event.futureId, metrics):
-    assert metrics.state == Running, $event.location
+    assert metrics.state == Running, $event.location & " " & $metrics.state
 
     let segmentExecTime = event.timestamp - metrics.lastStarted
 
