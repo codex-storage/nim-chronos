@@ -14,6 +14,7 @@ type
     childrenExecTime*: Duration
     wallClockTime*: Duration
     zombieEventCount*: uint
+    stillbornCount*: uint
     callCount*: uint
 
   RunningFuture* = object
@@ -118,31 +119,35 @@ proc futurePaused(self: var ProfilerMetrics, event: Event): void =
     metrics.state = Paused
 
 proc futureCompleted(self: var ProfilerMetrics, event: Event): void =
-  assert self.partials.hasKey(event.futureId), $event.location
+  let location = event.location
+  if not self.totals.hasKey(location):
+    self.totals[location] = AggregateFutureMetrics()
 
-  self.partials.withValue(event.futureId, metrics):
-    if metrics.state == Running:
-      self.futurePaused(event)
+  self.totals.withValue(location, aggMetrics):
+    if not self.partials.hasKey(event.futureId):
+      # Stillborn futures are those born in a finish state. We count those cause
+      # they may also be a byproduct of a bug.
+      aggMetrics.stillbornCount.inc()
+      return
 
-    let location = event.location
-    if not self.totals.hasKey(location):
-      self.totals[location] = AggregateFutureMetrics()
-
-    self.totals.withValue(location, aggMetrics):
-      let execTime = metrics.partialExecTime - metrics.partialChildrenExecOverlap
+    self.partials.withValue(event.futureId, metrics):
+      if metrics.state == Running:
+        self.futurePaused(event)
       
+      let execTime = metrics.partialExecTime - metrics.partialChildrenExecOverlap
+
       aggMetrics.callCount.inc()
       aggMetrics.execTime += execTime
       aggMetrics.execTimeMax = max(aggMetrics.execTimeMax, execTime)
       aggMetrics.childrenExecTime += metrics.partialChildrenExecTime
       aggMetrics.wallClockTime += event.timestamp - metrics.created
 
-    if metrics.parent.isSome:
-      self.partials.withValue(metrics.parent.get, parentMetrics):
-        parentMetrics.partialChildrenExecTime += metrics.partialExecTime
-        parentMetrics.partialChildrenExecOverlap += metrics.timeToFirstPause
+      if metrics.parent.isSome:
+        self.partials.withValue(metrics.parent.get, parentMetrics):
+          parentMetrics.partialChildrenExecTime += metrics.partialExecTime
+          parentMetrics.partialChildrenExecOverlap += metrics.timeToFirstPause
 
-    self.partials.del(event.futureId)
+  self.partials.del(event.futureId)
 
 proc processEvent*(self: var ProfilerMetrics, event: Event): void =
   case event.newState:

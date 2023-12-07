@@ -6,5 +6,7 @@ when chronosProfiling:
   import ./profiler/testevents
   import ./profiler/testmetrics
 
+  enableProfiling()
+
 {.used.}
 {.warning[UnusedImport]:off.}

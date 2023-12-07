@@ -1,3 +1,5 @@
+import math
+import sequtils
 import unittest2
 
 import ".."/".."/chronos
@@ -257,3 +259,15 @@ suite "Profiler metrics test suite":
 
       check zombieMetrics.execTime == 10.milliseconds
       check zombieMetrics.zombieEventCount == 1
+
+    test "should count futures which start in a completion state":
+      let completed {.used.} = Future.completed(42)
+      let failed {.used.} = Future[int].failed((ref ValueError)(msg: "msg"))
+
+      var metrics = recordedMetrics()
+
+      let stillborns = metrics.totals.pairs.toSeq.map(
+        proc (item: (SrcLoc, AggregateFutureMetrics)): uint =
+          item[1].stillbornCount).sum
+
+      check stillborns == 2
