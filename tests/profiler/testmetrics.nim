@@ -5,7 +5,7 @@ import ".."/".."/chronos/profiler/metrics
 
 import ./utils
 
-suite "profiler metrics test suite":
+suite "Profiler metrics test suite":
   
     setup:
       installCallbacks()

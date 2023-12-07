@@ -7,7 +7,7 @@ import ".."/".."/chronos/profiler
 
 import ./utils
 
-suite "profiler hooks test suite":
+suite "Profiler hooks test suite":
 
   setup:
     installCallbacks()
