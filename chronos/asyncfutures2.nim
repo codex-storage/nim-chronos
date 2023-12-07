@@ -315,11 +315,11 @@ proc futureContinue*(fut: FutureBase) {.raises: [], gcsafe.} =
   # instead with its original body captured in `fut.closure`.
   var next: FutureBase
   template iterate =
-    while true:
-      when chronosProfiling:
-        if not isNil(onFutureExecEvent):
-          onFutureExecEvent(fut, Running)
+    when chronosProfiling:
+      if not isNil(onFutureExecEvent):
+        onFutureExecEvent(fut, Running)
 
+    while true:
       # Call closure to make progress on `fut` until it reaches `yield` (inside
       # `await` typically) or completes / fails / is cancelled
       next = fut.internalClosure(fut)
@@ -327,11 +327,6 @@ proc futureContinue*(fut: FutureBase) {.raises: [], gcsafe.} =
       if fut.internalClosure.finished(): # Reached the end of the transformed proc
         break
       
-      # If we got thus far, means the future is paused.
-      when chronosProfiling:
-        if not isNil(onFutureExecEvent):
-          onFutureExecEvent(fut, Paused)
-
       if next == nil:
         raiseAssert "Async procedure (" & ($fut.location[LocationKind.Create]) &
                     ") yielded `nil`, are you await'ing a `nil` Future?"
@@ -341,6 +336,10 @@ proc futureContinue*(fut: FutureBase) {.raises: [], gcsafe.} =
         # `fut` to continue running when that happens
         GC_ref(fut)
         next.addCallback(CallbackFunc(internalContinue), cast[pointer](fut))
+
+        when chronosProfiling:
+          if not isNil(onFutureExecEvent):
+            onFutureExecEvent(fut, Paused)
 
         # return here so that we don't remove the closure below
         return
