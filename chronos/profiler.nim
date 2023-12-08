@@ -16,8 +16,8 @@ when chronosProfiling:
     result = futureMetrics
 
   proc enableEventCallbacks*(): void =
-    onFutureEvent = handleFutureEventCB
-    onFutureExecEvent = handleFutureExecEventCB
+    onBaseFutureEvent = handleBaseFutureEvent
+    onAsyncFutureEvent = handleAsyncFutureEvent
     
   proc enableProfiling*() =
     ## Enables profiling on the current event loop.

@@ -36,7 +36,7 @@ proc mkEvent(future: FutureBase, state: ExtendedFutureState): Event =
     timestamp: Moment.now(),
   )
   
-proc handleFutureEventCB*(future: FutureBase,
+proc handleBaseFutureEvent*(future: FutureBase,
     state: FutureState): void {.nimcall.} =
   {.cast(gcsafe).}:
     let extendedState = case state:
@@ -48,12 +48,12 @@ proc handleFutureEventCB*(future: FutureBase,
     if not isNil(handleFutureEvent):
       handleFutureEvent(mkEvent(future, extendedState))
 
-proc handleFutureExecEventCB*(future: FutureBase,
-    state: FutureExecutionState): void {.nimcall.} =
+proc handleAsyncFutureEvent*(future: FutureBase,
+    state: AsyncFutureState): void {.nimcall.} =
   {.cast(gcsafe).}:
     let extendedState = case state:
-      of FutureExecutionState.Running: ExtendedFutureState.Running
-      of FutureExecutionState.Paused: ExtendedFutureState.Paused
+      of AsyncFutureState.Running: ExtendedFutureState.Running
+      of AsyncFutureState.Paused: ExtendedFutureState.Paused
 
     if not isNil(handleFutureEvent):
       handleFutureEvent(mkEvent(future, extendedState))
