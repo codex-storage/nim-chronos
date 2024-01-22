@@ -6,8 +6,11 @@
 #              Licensed under either of
 #  Apache License, version 2.0, (LICENSE-APACHEv2)
 #              MIT license (LICENSE-MIT)
+
+{.push raises: [].}
+
 import std/tables
-import stew/results
+import results
 import ../../timer
 import httpserver, shttpserver
 from httpclient import HttpClientScheme
@@ -15,8 +18,6 @@ from httpcommon import HttpState
 from ../../osdefs import SocketHandle
 from ../../transports/common import TransportAddress, ServerFlags
 export HttpClientScheme, SocketHandle, TransportAddress, ServerFlags, HttpState
-
-{.push raises: [].}
 
 type
   ConnectionType* {.pure.} = enum
@@ -29,6 +30,7 @@ type
     handle*: SocketHandle
     connectionType*: ConnectionType
     connectionState*: ConnectionState
+    query*: Opt[string]
     remoteAddress*: Opt[TransportAddress]
     localAddress*: Opt[TransportAddress]
     acceptMoment*: Moment
@@ -85,6 +87,12 @@ proc getConnectionState*(holder: HttpConnectionHolderRef): ConnectionState =
   else:
     ConnectionState.Accepted
 
+proc getQueryString*(holder: HttpConnectionHolderRef): Opt[string] =
+  if not(isNil(holder.connection)):
+    holder.connection.currentRawQuery
+  else:
+    Opt.none(string)
+
 proc init*(t: typedesc[ServerConnectionInfo],
            holder: HttpConnectionHolderRef): ServerConnectionInfo =
   let
@@ -98,6 +106,7 @@ proc init*(t: typedesc[ServerConnectionInfo],
         Opt.some(holder.transp.remoteAddress())
       except CatchableError:
         Opt.none(TransportAddress)
+    queryString = holder.getQueryString()
 
   ServerConnectionInfo(
     handle: SocketHandle(holder.transp.fd),
@@ -106,6 +115,7 @@ proc init*(t: typedesc[ServerConnectionInfo],
     remoteAddress: remoteAddress,
     localAddress: localAddress,
     acceptMoment: holder.acceptMoment,
+    query: queryString,
     createMoment:
       if not(isNil(holder.connection)):
         Opt.some(holder.connection.createMoment)

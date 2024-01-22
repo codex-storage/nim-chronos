@@ -9,7 +9,7 @@ import std/[strutils, sha1]
 import ".."/chronos/unittest2/asynctests
 import ".."/chronos,
        ".."/chronos/apps/http/[httpserver, shttpserver, httpclient]
-import stew/base10
+import stew/[byteutils, base10]
 
 {.used.}
 
@@ -85,7 +85,8 @@ suite "HTTP client testing suite":
     res
 
   proc createServer(address: TransportAddress,
-                    process: HttpProcessCallback, secure: bool): HttpServerRef =
+                    process: HttpProcessCallback2,
+                    secure: bool): HttpServerRef =
     let
       socketFlags = {ServerFlags.TcpNoDelay, ServerFlags.ReuseAddr}
       serverFlags = {HttpServerFlags.Http11Pipeline}
@@ -128,18 +129,24 @@ suite "HTTP client testing suite":
       (MethodPatch, "/test/patch")
     ]
     proc process(r: RequestFence): Future[HttpResponseRef] {.
-         async.} =
+         async: (raises: [CancelledError]).} =
       if r.isOk():
         let request = r.get()
         case request.uri.path
         of "/test/get", "/test/post", "/test/head", "/test/put",
            "/test/delete", "/test/trace", "/test/options", "/test/connect",
            "/test/patch", "/test/error":
-          return await request.respond(Http200, request.uri.path)
+          try:
+            await request.respond(Http200, request.uri.path)
+          except HttpWriteError as exc:
+            defaultResponse(exc)
         else:
-          return await request.respond(Http404, "Page not found")
+          try:
+            await request.respond(Http404, "Page not found")
+          except HttpWriteError as exc:
+            defaultResponse(exc)
       else:
-        return defaultResponse()
+        defaultResponse()
 
     var server = createServer(initTAddress("127.0.0.1:0"), process, secure)
     server.start()
@@ -157,7 +164,7 @@ suite "HTTP client testing suite":
       var req = HttpClientRequestRef.new(session, ha, item[0])
       let response = await fetch(req)
       if response.status == 200:
-        let data = cast[string](response.data)
+        let data = string.fromBytes(response.data)
         if data == item[1]:
           inc(counter)
       await req.closeWait()
@@ -173,7 +180,7 @@ suite "HTTP client testing suite":
       var req = HttpClientRequestRef.new(session, ha, item[0])
       let response = await fetch(req)
       if response.status == 200:
-        let data = cast[string](response.data)
+        let data = string.fromBytes(response.data)
         if data == item[1]:
           inc(counter)
       await req.closeWait()
@@ -187,15 +194,15 @@ suite "HTTP client testing suite":
     let ResponseTests = [
       (MethodGet, "/test/short_size_response", 65600, 1024,
        "SHORTSIZERESPONSE"),
-      (MethodGet, "/test/long_size_response", 262400, 1024,
+      (MethodGet, "/test/long_size_response", 131200, 1024,
        "LONGSIZERESPONSE"),
       (MethodGet, "/test/short_chunked_response", 65600, 1024,
        "SHORTCHUNKRESPONSE"),
-      (MethodGet, "/test/long_chunked_response", 262400, 1024,
+      (MethodGet, "/test/long_chunked_response", 131200, 1024,
        "LONGCHUNKRESPONSE")
     ]
     proc process(r: RequestFence): Future[HttpResponseRef] {.
-         async.} =
+         async: (raises: [CancelledError]).} =
       if r.isOk():
         let request = r.get()
         case request.uri.path
@@ -203,46 +210,58 @@ suite "HTTP client testing suite":
           var response = request.getResponse()
           var data = createBigMessage(ResponseTests[0][4], ResponseTests[0][2])
           response.status = Http200
-          await response.sendBody(data)
-          return response
+          try:
+            await response.sendBody(data)
+          except HttpWriteError as exc:
+            return defaultResponse(exc)
+          response
         of "/test/long_size_response":
           var response = request.getResponse()
           var data = createBigMessage(ResponseTests[1][4], ResponseTests[1][2])
           response.status = Http200
-          await response.sendBody(data)
-          return response
+          try:
+            await response.sendBody(data)
+          except HttpWriteError as exc:
+            return defaultResponse(exc)
+          response
         of "/test/short_chunked_response":
           var response = request.getResponse()
           var data = createBigMessage(ResponseTests[2][4], ResponseTests[2][2])
           response.status = Http200
-          await response.prepare()
-          var offset = 0
-          while true:
-            if len(data) == offset:
-              break
-            let toWrite = min(1024, len(data) - offset)
-            await response.sendChunk(addr data[offset], toWrite)
-            offset = offset + toWrite
-          await response.finish()
-          return response
+          try:
+            await response.prepare()
+            var offset = 0
+            while true:
+              if len(data) == offset:
+                break
+              let toWrite = min(1024, len(data) - offset)
+              await response.sendChunk(addr data[offset], toWrite)
+              offset = offset + toWrite
+            await response.finish()
+          except HttpWriteError as exc:
+            return defaultResponse(exc)
+          response
         of "/test/long_chunked_response":
           var response = request.getResponse()
           var data = createBigMessage(ResponseTests[3][4], ResponseTests[3][2])
           response.status = Http200
-          await response.prepare()
-          var offset = 0
-          while true:
-            if len(data) == offset:
-              break
-            let toWrite = min(1024, len(data) - offset)
-            await response.sendChunk(addr data[offset], toWrite)
-            offset = offset + toWrite
-          await response.finish()
-          return response
+          try:
+            await response.prepare()
+            var offset = 0
+            while true:
+              if len(data) == offset:
+                break
+              let toWrite = min(1024, len(data) - offset)
+              await response.sendChunk(addr data[offset], toWrite)
+              offset = offset + toWrite
+            await response.finish()
+          except HttpWriteError as exc:
+            return defaultResponse(exc)
+          response
         else:
-          return await request.respond(Http404, "Page not found")
+          defaultResponse()
       else:
-        return defaultResponse()
+        defaultResponse()
 
     var server = createServer(initTAddress("127.0.0.1:0"), process, secure)
     server.start()
@@ -311,21 +330,26 @@ suite "HTTP client testing suite":
       (MethodPost, "/test/big_request", 262400)
     ]
     proc process(r: RequestFence): Future[HttpResponseRef] {.
-         async.} =
+         async: (raises: [CancelledError]).} =
       if r.isOk():
         let request = r.get()
         case request.uri.path
         of "/test/big_request":
-          if request.hasBody():
-            let body = await request.getBody()
-            let digest = $secureHash(cast[string](body))
-            return await request.respond(Http200, digest)
-          else:
-            return await request.respond(Http400, "Missing content body")
+          try:
+            if request.hasBody():
+              let body = await request.getBody()
+              let digest = $secureHash(string.fromBytes(body))
+              await request.respond(Http200, digest)
+            else:
+              await request.respond(Http400, "Missing content body")
+          except HttpProtocolError as exc:
+            defaultResponse(exc)
+          except HttpTransportError as exc:
+            defaultResponse(exc)
         else:
-          return await request.respond(Http404, "Page not found")
+          defaultResponse()
       else:
-        return defaultResponse()
+        defaultResponse()
 
     var server = createServer(initTAddress("127.0.0.1:0"), process, secure)
     server.start()
@@ -348,7 +372,7 @@ suite "HTTP client testing suite":
         session, ha, item[0], headers = headers
       )
 
-      var expectDigest = $secureHash(cast[string](data))
+      var expectDigest = $secureHash(string.fromBytes(data))
       # Sending big request by 1024bytes long chunks
       var writer = await open(request)
       var offset = 0
@@ -364,7 +388,7 @@ suite "HTTP client testing suite":
 
       if response.status == 200:
         var res = await response.getBodyBytes()
-        if cast[string](res) == expectDigest:
+        if string.fromBytes(res) == expectDigest:
           inc(counter)
       await response.closeWait()
       await request.closeWait()
@@ -381,21 +405,27 @@ suite "HTTP client testing suite":
       (MethodPost, "/test/big_chunk_request", 262400)
     ]
     proc process(r: RequestFence): Future[HttpResponseRef] {.
-         async.} =
+         async: (raises: [CancelledError]).} =
       if r.isOk():
         let request = r.get()
         case request.uri.path
         of "/test/big_chunk_request":
-          if request.hasBody():
-            let body = await request.getBody()
-            let digest = $secureHash(cast[string](body))
-            return await request.respond(Http200, digest)
-          else:
-            return await request.respond(Http400, "Missing content body")
+          try:
+            if request.hasBody():
+              let
+                body = await request.getBody()
+                digest = $secureHash(string.fromBytes(body))
+              await request.respond(Http200, digest)
+            else:
+              await request.respond(Http400, "Missing content body")
+          except HttpProtocolError as exc:
+            defaultResponse(exc)
+          except HttpTransportError as exc:
+            defaultResponse(exc)
         else:
-          return await request.respond(Http404, "Page not found")
+          defaultResponse()
       else:
-        return defaultResponse()
+        defaultResponse()
 
     var server = createServer(initTAddress("127.0.0.1:0"), process, secure)
     server.start()
@@ -418,7 +448,7 @@ suite "HTTP client testing suite":
         session, ha, item[0], headers = headers
       )
 
-      var expectDigest = $secureHash(cast[string](data))
+      var expectDigest = $secureHash(string.fromBytes(data))
       # Sending big request by 1024bytes long chunks
       var writer = await open(request)
       var offset = 0
@@ -434,7 +464,7 @@ suite "HTTP client testing suite":
 
       if response.status == 200:
         var res = await response.getBodyBytes()
-        if cast[string](res) == expectDigest:
+        if string.fromBytes(res) == expectDigest:
           inc(counter)
       await response.closeWait()
       await request.closeWait()
@@ -455,23 +485,28 @@ suite "HTTP client testing suite":
     ]
 
     proc process(r: RequestFence): Future[HttpResponseRef] {.
-         async.} =
+         async: (raises: [CancelledError]).} =
       if r.isOk():
         let request = r.get()
         case request.uri.path
         of "/test/post/urlencoded_size", "/test/post/urlencoded_chunked":
-          if request.hasBody():
-            var postTable = await request.post()
-            let body = postTable.getString("field1") & ":" &
-                       postTable.getString("field2") & ":" &
-                       postTable.getString("field3")
-            return await request.respond(Http200, body)
-          else:
-            return await request.respond(Http400, "Missing content body")
+          try:
+            if request.hasBody():
+              var postTable = await request.post()
+              let body = postTable.getString("field1") & ":" &
+                         postTable.getString("field2") & ":" &
+                         postTable.getString("field3")
+              await request.respond(Http200, body)
+            else:
+              await request.respond(Http400, "Missing content body")
+          except HttpTransportError as exc:
+            defaultResponse(exc)
+          except HttpProtocolError as exc:
+            defaultResponse(exc)
         else:
-          return await request.respond(Http404, "Page not found")
+          defaultResponse()
       else:
-        return defaultResponse()
+        defaultResponse()
 
     var server = createServer(initTAddress("127.0.0.1:0"), process, secure)
     server.start()
@@ -491,12 +526,12 @@ suite "HTTP client testing suite":
       ]
       var request = HttpClientRequestRef.new(
         session, ha, MethodPost, headers = headers,
-        body = cast[seq[byte]](PostRequests[0][1]))
+        body = PostRequests[0][1].toBytes())
       var response = await send(request)
 
       if response.status == 200:
         var res = await response.getBodyBytes()
-        if cast[string](res) == PostRequests[0][2]:
+        if string.fromBytes(res) == PostRequests[0][2]:
           inc(counter)
       await response.closeWait()
       await request.closeWait()
@@ -532,7 +567,7 @@ suite "HTTP client testing suite":
       var response = await request.finish()
       if response.status == 200:
         var res = await response.getBodyBytes()
-        if cast[string](res) == PostRequests[1][2]:
+        if string.fromBytes(res) == PostRequests[1][2]:
           inc(counter)
       await response.closeWait()
       await request.closeWait()
@@ -554,23 +589,28 @@ suite "HTTP client testing suite":
     ]
 
     proc process(r: RequestFence): Future[HttpResponseRef] {.
-         async.} =
+         async: (raises: [CancelledError]).} =
       if r.isOk():
         let request = r.get()
         case request.uri.path
         of "/test/post/multipart_size", "/test/post/multipart_chunked":
-          if request.hasBody():
-            var postTable = await request.post()
-            let body = postTable.getString("field1") & ":" &
-                       postTable.getString("field2") & ":" &
-                       postTable.getString("field3")
-            return await request.respond(Http200, body)
-          else:
-            return await request.respond(Http400, "Missing content body")
+          try:
+            if request.hasBody():
+              var postTable = await request.post()
+              let body = postTable.getString("field1") & ":" &
+                         postTable.getString("field2") & ":" &
+                         postTable.getString("field3")
+              await request.respond(Http200, body)
+            else:
+              await request.respond(Http400, "Missing content body")
+          except HttpProtocolError as exc:
+            defaultResponse(exc)
+          except HttpTransportError as exc:
+            defaultResponse(exc)
         else:
-          return await request.respond(Http404, "Page not found")
+          defaultResponse()
       else:
-        return defaultResponse()
+        defaultResponse()
 
     var server = createServer(initTAddress("127.0.0.1:0"), process, secure)
     server.start()
@@ -601,7 +641,7 @@ suite "HTTP client testing suite":
       var response = await send(request)
       if response.status == 200:
         var res = await response.getBodyBytes()
-        if cast[string](res) == PostRequests[0][3]:
+        if string.fromBytes(res) == PostRequests[0][3]:
           inc(counter)
       await response.closeWait()
       await request.closeWait()
@@ -634,7 +674,7 @@ suite "HTTP client testing suite":
       let response = await request.finish()
       if response.status == 200:
         var res = await response.getBodyBytes()
-        if cast[string](res) == PostRequests[1][3]:
+        if string.fromBytes(res) == PostRequests[1][3]:
           inc(counter)
       await response.closeWait()
       await request.closeWait()
@@ -649,26 +689,29 @@ suite "HTTP client testing suite":
     var lastAddress: Uri
 
     proc process(r: RequestFence): Future[HttpResponseRef] {.
-         async.} =
+         async: (raises: [CancelledError]).} =
       if r.isOk():
         let request = r.get()
-        case request.uri.path
-        of "/":
-          return await request.redirect(Http302, "/redirect/1")
-        of "/redirect/1":
-          return await request.redirect(Http302, "/next/redirect/2")
-        of "/next/redirect/2":
-          return await request.redirect(Http302, "redirect/3")
-        of "/next/redirect/redirect/3":
-          return await request.redirect(Http302, "next/redirect/4")
-        of "/next/redirect/redirect/next/redirect/4":
-          return await request.redirect(Http302, lastAddress)
-        of "/final/5":
-          return await request.respond(Http200, "ok-5")
-        else:
-          return await request.respond(Http404, "Page not found")
+        try:
+          case request.uri.path
+          of "/":
+            await request.redirect(Http302, "/redirect/1")
+          of "/redirect/1":
+            await request.redirect(Http302, "/next/redirect/2")
+          of "/next/redirect/2":
+            await request.redirect(Http302, "redirect/3")
+          of "/next/redirect/redirect/3":
+            await request.redirect(Http302, "next/redirect/4")
+          of "/next/redirect/redirect/next/redirect/4":
+            await request.redirect(Http302, lastAddress)
+          of "/final/5":
+            await request.respond(Http200, "ok-5")
+          else:
+            await request.respond(Http404, "Page not found")
+        except HttpWriteError as exc:
+          defaultResponse(exc)
       else:
-        return defaultResponse()
+        defaultResponse()
 
     var server = createServer(initTAddress("127.0.0.1:0"), process, secure)
     server.start()
@@ -703,6 +746,107 @@ suite "HTTP client testing suite":
       await server.stop()
       await server.closeWait()
       return "redirect-" & $res
+
+  proc testSendCancelLeaksTest(secure: bool): Future[bool] {.async.} =
+    proc process(r: RequestFence): Future[HttpResponseRef] {.
+         async: (raises: [CancelledError]).} =
+      defaultResponse()
+
+    var server = createServer(initTAddress("127.0.0.1:0"), process, secure)
+    server.start()
+    let address = server.instance.localAddress()
+
+    let ha =
+      if secure:
+        getAddress(address, HttpClientScheme.Secure, "/")
+      else:
+        getAddress(address, HttpClientScheme.NonSecure, "/")
+
+    var counter = 0
+    while true:
+      let
+        session = createSession(secure)
+        request = HttpClientRequestRef.new(session, ha, MethodGet)
+        requestFut = request.send()
+
+      if counter > 0:
+        await stepsAsync(counter)
+      let exitLoop =
+        if not(requestFut.finished()):
+          await cancelAndWait(requestFut)
+          doAssert(cancelled(requestFut) or completed(requestFut),
+                   "Future should be Cancelled or Completed at this point")
+          if requestFut.completed():
+            let response = await requestFut
+            await response.closeWait()
+
+          inc(counter)
+          false
+        else:
+          let response = await requestFut
+          await response.closeWait()
+          true
+
+      await request.closeWait()
+      await session.closeWait()
+
+      if exitLoop:
+        break
+
+    await server.stop()
+    await server.closeWait()
+    return true
+
+  proc testOpenCancelLeaksTest(secure: bool): Future[bool] {.async.} =
+    proc process(r: RequestFence): Future[HttpResponseRef] {.
+         async: (raises: [CancelledError]).} =
+      defaultResponse()
+
+    var server = createServer(initTAddress("127.0.0.1:0"), process, secure)
+    server.start()
+    let address = server.instance.localAddress()
+
+    let ha =
+      if secure:
+        getAddress(address, HttpClientScheme.Secure, "/")
+      else:
+        getAddress(address, HttpClientScheme.NonSecure, "/")
+
+    var counter = 0
+    while true:
+      let
+        session = createSession(secure)
+        request = HttpClientRequestRef.new(session, ha, MethodPost)
+        bodyFut = request.open()
+
+      if counter > 0:
+        await stepsAsync(counter)
+      let exitLoop =
+        if not(bodyFut.finished()):
+          await cancelAndWait(bodyFut)
+          doAssert(cancelled(bodyFut) or completed(bodyFut),
+                   "Future should be Cancelled or Completed at this point")
+
+          if bodyFut.completed():
+            let bodyWriter = await bodyFut
+            await bodyWriter.closeWait()
+
+          inc(counter)
+          false
+        else:
+          let bodyWriter = await bodyFut
+          await bodyWriter.closeWait()
+          true
+
+      await request.closeWait()
+      await session.closeWait()
+
+      if exitLoop:
+        break
+
+    await server.stop()
+    await server.closeWait()
+    return true
 
   # proc testBasicAuthorization(): Future[bool] {.async.} =
   #   let session = HttpSessionRef.new({HttpClientFlag.NoVerifyHost},
@@ -766,20 +910,24 @@ suite "HTTP client testing suite":
       return @[(data1.status, data1.data.bytesToString(), count),
                (data2.status, data2.data.bytesToString(), count)]
 
-    proc process(r: RequestFence): Future[HttpResponseRef] {.async.} =
+    proc process(r: RequestFence): Future[HttpResponseRef] {.
+         async: (raises: [CancelledError]).} =
       if r.isOk():
         let request = r.get()
-        case request.uri.path
-        of "/keep":
-          let headers = HttpTable.init([("connection", "keep-alive")])
-          return await request.respond(Http200, "ok", headers = headers)
-        of "/drop":
-          let headers = HttpTable.init([("connection", "close")])
-          return await request.respond(Http200, "ok", headers = headers)
-        else:
-          return await request.respond(Http404, "Page not found")
+        try:
+          case request.uri.path
+          of "/keep":
+            let headers = HttpTable.init([("connection", "keep-alive")])
+            await request.respond(Http200, "ok", headers = headers)
+          of "/drop":
+            let headers = HttpTable.init([("connection", "close")])
+            await request.respond(Http200, "ok", headers = headers)
+          else:
+            await request.respond(Http404, "Page not found")
+        except HttpWriteError as exc:
+          defaultResponse(exc)
       else:
-        return defaultResponse()
+        defaultResponse()
 
     var server = createServer(initTAddress("127.0.0.1:0"), process, false)
     server.start()
@@ -901,16 +1049,20 @@ suite "HTTP client testing suite":
         await request.closeWait()
       return (data.status, data.data.bytesToString(), 0)
 
-    proc process(r: RequestFence): Future[HttpResponseRef] {.async.} =
+    proc process(r: RequestFence): Future[HttpResponseRef] {.
+         async: (raises: [CancelledError]).} =
       if r.isOk():
         let request = r.get()
-        case request.uri.path
-        of "/test":
-          return await request.respond(Http200, "ok")
-        else:
-          return await request.respond(Http404, "Page not found")
+        try:
+          case request.uri.path
+          of "/test":
+            await request.respond(Http200, "ok")
+          else:
+            await request.respond(Http404, "Page not found")
+        except HttpWriteError as exc:
+          defaultResponse(exc)
       else:
-        return defaultResponse()
+        defaultResponse()
 
     var server = createServer(initTAddress("127.0.0.1:0"), process, false)
     server.start()
@@ -960,19 +1112,23 @@ suite "HTTP client testing suite":
         await request.closeWait()
       return (data.status, data.data.bytesToString(), 0)
 
-    proc process(r: RequestFence): Future[HttpResponseRef] {.async.} =
+    proc process(r: RequestFence): Future[HttpResponseRef] {.
+         async: (raises: [CancelledError]).} =
       if r.isOk():
         let request = r.get()
-        case request.uri.path
-        of "/test":
-          return await request.respond(Http200, "ok")
-        of "/keep-test":
-          let headers = HttpTable.init([("Connection", "keep-alive")])
-          return await request.respond(Http200, "not-alive", headers)
-        else:
-          return await request.respond(Http404, "Page not found")
+        try:
+          case request.uri.path
+          of "/test":
+            await request.respond(Http200, "ok")
+          of "/keep-test":
+            let headers = HttpTable.init([("Connection", "keep-alive")])
+            await request.respond(Http200, "not-alive", headers)
+          else:
+            await request.respond(Http404, "Page not found")
+        except HttpWriteError as exc:
+          defaultResponse(exc)
       else:
-        return defaultResponse()
+        defaultResponse()
 
     var server = createServer(initTAddress("127.0.0.1:0"), process, false)
     server.start()
@@ -1075,58 +1231,62 @@ suite "HTTP client testing suite":
           return false
       true
 
-    proc process(r: RequestFence): Future[HttpResponseRef] {.async.} =
+    proc process(r: RequestFence): Future[HttpResponseRef] {.
+         async: (raises: [CancelledError]).} =
       if r.isOk():
         let request = r.get()
-        if request.uri.path.startsWith("/test/single/"):
-          let index =
-            block:
-              var res = -1
-              for index, value in SingleGoodTests.pairs():
-                if value[0] == request.uri.path:
-                  res = index
-                  break
-              res
-          if index < 0:
-            return await request.respond(Http404, "Page not found")
-          var response = request.getResponse()
-          response.status = Http200
-          await response.sendBody(SingleGoodTests[index][1])
-          return response
-        elif request.uri.path.startsWith("/test/multiple/"):
-          let index =
-            block:
-              var res = -1
-              for index, value in MultipleGoodTests.pairs():
-                if value[0] == request.uri.path:
-                  res = index
-                  break
-              res
-          if index < 0:
-            return await request.respond(Http404, "Page not found")
-          var response = request.getResponse()
-          response.status = Http200
-          await response.sendBody(MultipleGoodTests[index][1])
-          return response
-        elif request.uri.path.startsWith("/test/overflow/"):
-          let index =
-            block:
-              var res = -1
-              for index, value in OverflowTests.pairs():
-                if value[0] == request.uri.path:
-                  res = index
-                  break
-              res
-          if index < 0:
-            return await request.respond(Http404, "Page not found")
-          var response = request.getResponse()
-          response.status = Http200
-          await response.sendBody(OverflowTests[index][1])
-          return response
-        else:
-          return await request.respond(Http404, "Page not found")
+        try:
+          if request.uri.path.startsWith("/test/single/"):
+            let index =
+              block:
+                var res = -1
+                for index, value in SingleGoodTests.pairs():
+                  if value[0] == request.uri.path:
+                    res = index
+                    break
+                res
+            if index < 0:
+              return await request.respond(Http404, "Page not found")
+            var response = request.getResponse()
+            response.status = Http200
+            await response.sendBody(SingleGoodTests[index][1])
+            response
+          elif request.uri.path.startsWith("/test/multiple/"):
+            let index =
+              block:
+                var res = -1
+                for index, value in MultipleGoodTests.pairs():
+                  if value[0] == request.uri.path:
+                    res = index
+                    break
+                res
+            if index < 0:
+              return await request.respond(Http404, "Page not found")
+            var response = request.getResponse()
+            response.status = Http200
+            await response.sendBody(MultipleGoodTests[index][1])
+            response
+          elif request.uri.path.startsWith("/test/overflow/"):
+            let index =
+              block:
+                var res = -1
+                for index, value in OverflowTests.pairs():
+                  if value[0] == request.uri.path:
+                    res = index
+                    break
+                res
+            if index < 0:
+              return await request.respond(Http404, "Page not found")
+            var response = request.getResponse()
+            response.status = Http200
+            await response.sendBody(OverflowTests[index][1])
+            response
+          else:
+            defaultResponse()
+        except HttpWriteError as exc:
+          defaultResponse(exc)
       else:
-        return defaultResponse()
+        defaultResponse()
 
     var server = createServer(initTAddress("127.0.0.1:0"), process, secure)
     server.start()
@@ -1243,6 +1403,18 @@ suite "HTTP client testing suite":
   test "HTTP(S) client maximum redirections test":
     check waitFor(testRequestRedirectTest(true, 4)) == "redirect-true"
 
+  test "HTTP send() cancellation leaks test":
+    check waitFor(testSendCancelLeaksTest(false)) == true
+
+  test "HTTP(S) send() cancellation leaks test":
+    check waitFor(testSendCancelLeaksTest(true)) == true
+
+  test "HTTP open() cancellation leaks test":
+    check waitFor(testOpenCancelLeaksTest(false)) == true
+
+  test "HTTP(S) open() cancellation leaks test":
+    check waitFor(testOpenCancelLeaksTest(true)) == true
+
   test "HTTPS basic authorization test":
     skip()
     # This test disabled because remote service is pretty flaky and fails pretty
@@ -1261,6 +1433,89 @@ suite "HTTP client testing suite":
 
   test "HTTP client server-sent events test":
     check waitFor(testServerSentEvents(false)) == true
+
+  test "HTTP getHttpAddress() test":
+    block:
+      # HTTP client supports only `http` and `https` schemes in URL.
+      let res = getHttpAddress("ftp://ftp.scene.org")
+      check:
+        res.isErr()
+        res.error == HttpAddressErrorType.InvalidUrlScheme
+        res.error.isCriticalError()
+    block:
+      # HTTP URL default ports and custom ports test
+      let
+        res1 = getHttpAddress("http://www.google.com")
+        res2 = getHttpAddress("https://www.google.com")
+        res3 = getHttpAddress("http://www.google.com:35000")
+        res4 = getHttpAddress("https://www.google.com:25000")
+      check:
+        res1.isOk()
+        res2.isOk()
+        res3.isOk()
+        res4.isOk()
+        res1.get().port == 80
+        res2.get().port == 443
+        res3.get().port == 35000
+        res4.get().port == 25000
+    block:
+      # HTTP URL invalid port values test
+      let
+        res1 = getHttpAddress("http://www.google.com:-80")
+        res2 = getHttpAddress("http://www.google.com:0")
+        res3 = getHttpAddress("http://www.google.com:65536")
+        res4 = getHttpAddress("http://www.google.com:65537")
+        res5 = getHttpAddress("https://www.google.com:-443")
+        res6 = getHttpAddress("https://www.google.com:0")
+        res7 = getHttpAddress("https://www.google.com:65536")
+        res8 = getHttpAddress("https://www.google.com:65537")
+      check:
+        res1.isErr() and res1.error == HttpAddressErrorType.InvalidPortNumber
+        res1.error.isCriticalError()
+        res2.isOk()
+        res2.get().port == 0
+        res3.isErr() and res3.error == HttpAddressErrorType.InvalidPortNumber
+        res3.error.isCriticalError()
+        res4.isErr() and res4.error == HttpAddressErrorType.InvalidPortNumber
+        res4.error.isCriticalError()
+        res5.isErr() and res5.error == HttpAddressErrorType.InvalidPortNumber
+        res5.error.isCriticalError()
+        res6.isOk()
+        res6.get().port == 0
+        res7.isErr() and res7.error == HttpAddressErrorType.InvalidPortNumber
+        res7.error.isCriticalError()
+        res8.isErr() and res8.error == HttpAddressErrorType.InvalidPortNumber
+        res8.error.isCriticalError()
+    block:
+      # HTTP URL missing hostname
+      let
+        res1 = getHttpAddress("http://")
+        res2 = getHttpAddress("https://")
+      check:
+        res1.isErr() and res1.error == HttpAddressErrorType.MissingHostname
+        res1.error.isCriticalError()
+        res2.isErr() and res2.error == HttpAddressErrorType.MissingHostname
+        res2.error.isCriticalError()
+    block:
+      # No resolution flags and incorrect URL
+      let
+        flags = {HttpClientFlag.NoInet4Resolution,
+                 HttpClientFlag.NoInet6Resolution}
+        res1 = getHttpAddress("http://256.256.256.256", flags)
+        res2 = getHttpAddress(
+          "http://[FFFFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF]", flags)
+      check:
+        res1.isErr() and res1.error == HttpAddressErrorType.InvalidIpHostname
+        res1.error.isCriticalError()
+        res2.isErr() and res2.error == HttpAddressErrorType.InvalidIpHostname
+        res2.error.isCriticalError()
+    block:
+      # Resolution of non-existent hostname
+      let res = getHttpAddress("http://eYr6bdBo.com")
+      check:
+        res.isErr() and res.error == HttpAddressErrorType.NameLookupFailed
+        res.error.isRecoverableError()
+        not(res.error.isCriticalError())
 
   test "Leaks test":
     checkLeaks()

@@ -34,7 +34,7 @@ suite "Stream Transport test suite":
     ]
   else:
     let addresses = [
-      initTAddress("127.0.0.1:33335"),
+      initTAddress("127.0.0.1:0"),
       initTAddress(r"/tmp/testpipe")
     ]
 
@@ -43,7 +43,7 @@ suite "Stream Transport test suite":
   var markFD: int
 
   proc getCurrentFD(): int =
-    let local = initTAddress("127.0.0.1:33334")
+    let local = initTAddress("127.0.0.1:0")
     let sock = createAsyncSocket(local.getDomain(), SockType.SOCK_DGRAM,
                                  Protocol.IPPROTO_UDP)
     closeSocket(sock)
@@ -55,124 +55,148 @@ suite "Stream Transport test suite":
     for i in 0 ..< len(result):
       result[i] = byte(message[i mod len(message)])
 
-  proc serveClient1(server: StreamServer, transp: StreamTransport) {.async.} =
-    while not transp.atEof():
-      var data = await transp.readLine()
-      if len(data) == 0:
-        doAssert(transp.atEof())
-        break
-      doAssert(data.startsWith("REQUEST"))
-      var numstr = data[7..^1]
-      var num = parseInt(numstr)
-      var ans = "ANSWER" & $num & "\r\n"
-      var res = await transp.write(cast[pointer](addr ans[0]), len(ans))
-      doAssert(res == len(ans))
-    transp.close()
-    await transp.join()
+  proc serveClient1(server: StreamServer, transp: StreamTransport) {.
+      async: (raises: []).} =
+    try:
+      while not transp.atEof():
+        var data = await transp.readLine()
+        if len(data) == 0:
+          doAssert(transp.atEof())
+          break
+        doAssert(data.startsWith("REQUEST"))
+        var numstr = data[7..^1]
+        var num = parseInt(numstr)
+        var ans = "ANSWER" & $num & "\r\n"
+        var res = await transp.write(cast[pointer](addr ans[0]), len(ans))
+        doAssert(res == len(ans))
+      transp.close()
+      await transp.join()
+    except CatchableError as exc:
+      raiseAssert exc.msg
 
-  proc serveClient2(server: StreamServer, transp: StreamTransport) {.async.} =
-    var buffer: array[20, char]
-    var check = "REQUEST"
-    while not transp.atEof():
-      zeroMem(addr buffer[0], MessageSize)
-      try:
-        await transp.readExactly(addr buffer[0], MessageSize)
-      except TransportIncompleteError:
-        break
-      doAssert(equalMem(addr buffer[0], addr check[0], len(check)))
-      var numstr = ""
-      var i = 7
-      while i < MessageSize and (buffer[i] in {'0'..'9'}):
-        numstr.add(buffer[i])
-        inc(i)
-      var num = parseInt(numstr)
-      var ans = "ANSWER" & $num
-      zeroMem(addr buffer[0], MessageSize)
-      copyMem(addr buffer[0], addr ans[0], len(ans))
-      var res = await transp.write(cast[pointer](addr buffer[0]), MessageSize)
-      doAssert(res == MessageSize)
-    transp.close()
-    await transp.join()
+  proc serveClient2(server: StreamServer, transp: StreamTransport) {.
+      async: (raises: []).} =
+    try:
+      var buffer: array[20, char]
+      var check = "REQUEST"
+      while not transp.atEof():
+        zeroMem(addr buffer[0], MessageSize)
+        try:
+          await transp.readExactly(addr buffer[0], MessageSize)
+        except TransportIncompleteError:
+          break
+        doAssert(equalMem(addr buffer[0], addr check[0], len(check)))
+        var numstr = ""
+        var i = 7
+        while i < MessageSize and (buffer[i] in {'0'..'9'}):
+          numstr.add(buffer[i])
+          inc(i)
+        var num = parseInt(numstr)
+        var ans = "ANSWER" & $num
+        zeroMem(addr buffer[0], MessageSize)
+        copyMem(addr buffer[0], addr ans[0], len(ans))
+        var res = await transp.write(cast[pointer](addr buffer[0]), MessageSize)
+        doAssert(res == MessageSize)
+      transp.close()
+      await transp.join()
+    except CatchableError as exc:
+      raiseAssert exc.msg
 
-  proc serveClient3(server: StreamServer, transp: StreamTransport) {.async.} =
-    var buffer: array[20, char]
-    var check = "REQUEST"
-    var suffixStr = "SUFFIX"
-    var suffix = newSeq[byte](6)
-    copyMem(addr suffix[0], addr suffixStr[0], len(suffixStr))
-    var counter = MessagesCount
-    while counter > 0:
-      zeroMem(addr buffer[0], MessageSize)
-      var res = await transp.readUntil(addr buffer[0], MessageSize, suffix)
-      doAssert(equalMem(addr buffer[0], addr check[0], len(check)))
-      var numstr = ""
-      var i = 7
-      while i < MessageSize and (buffer[i] in {'0'..'9'}):
-        numstr.add(buffer[i])
-        inc(i)
-      var num = parseInt(numstr)
-      doAssert(len(numstr) < 8)
-      var ans = "ANSWER" & $num & "SUFFIX"
-      zeroMem(addr buffer[0], MessageSize)
-      copyMem(addr buffer[0], addr ans[0], len(ans))
-      res = await transp.write(cast[pointer](addr buffer[0]), len(ans))
-      doAssert(res == len(ans))
-      dec(counter)
-    transp.close()
-    await transp.join()
+  proc serveClient3(server: StreamServer, transp: StreamTransport) {.
+      async: (raises: []).} =
+    try:
+      var buffer: array[20, char]
+      var check = "REQUEST"
+      var suffixStr = "SUFFIX"
+      var suffix = newSeq[byte](6)
+      copyMem(addr suffix[0], addr suffixStr[0], len(suffixStr))
+      var counter = MessagesCount
+      while counter > 0:
+        zeroMem(addr buffer[0], MessageSize)
+        var res = await transp.readUntil(addr buffer[0], MessageSize, suffix)
+        doAssert(equalMem(addr buffer[0], addr check[0], len(check)))
+        var numstr = ""
+        var i = 7
+        while i < MessageSize and (buffer[i] in {'0'..'9'}):
+          numstr.add(buffer[i])
+          inc(i)
+        var num = parseInt(numstr)
+        doAssert(len(numstr) < 8)
+        var ans = "ANSWER" & $num & "SUFFIX"
+        zeroMem(addr buffer[0], MessageSize)
+        copyMem(addr buffer[0], addr ans[0], len(ans))
+        res = await transp.write(cast[pointer](addr buffer[0]), len(ans))
+        doAssert(res == len(ans))
+        dec(counter)
+      transp.close()
+      await transp.join()
+    except CatchableError as exc:
+      raiseAssert exc.msg
 
-  proc serveClient4(server: StreamServer, transp: StreamTransport) {.async.} =
-    var pathname = await transp.readLine()
-    var size = await transp.readLine()
-    var sizeNum = parseInt(size)
-    doAssert(sizeNum >= 0)
-    var rbuffer = newSeq[byte](sizeNum)
-    await transp.readExactly(addr rbuffer[0], sizeNum)
-    var lbuffer = readFile(pathname)
-    doAssert(len(lbuffer) == sizeNum)
-    doAssert(equalMem(addr rbuffer[0], addr lbuffer[0], sizeNum))
-    var answer = "OK\r\n"
-    var res = await transp.write(cast[pointer](addr answer[0]), len(answer))
-    doAssert(res == len(answer))
-    transp.close()
-    await transp.join()
+  proc serveClient4(server: StreamServer, transp: StreamTransport) {.
+      async: (raises: []).} =
+    try:
+      var pathname = await transp.readLine()
+      var size = await transp.readLine()
+      var sizeNum = parseInt(size)
+      doAssert(sizeNum >= 0)
+      var rbuffer = newSeq[byte](sizeNum)
+      await transp.readExactly(addr rbuffer[0], sizeNum)
+      var lbuffer = readFile(pathname)
+      doAssert(len(lbuffer) == sizeNum)
+      doAssert(equalMem(addr rbuffer[0], addr lbuffer[0], sizeNum))
+      var answer = "OK\r\n"
+      var res = await transp.write(cast[pointer](addr answer[0]), len(answer))
+      doAssert(res == len(answer))
+      transp.close()
+      await transp.join()
+    except CatchableError as exc:
+      raiseAssert exc.msg
 
-  proc serveClient7(server: StreamServer, transp: StreamTransport) {.async.} =
-    var answer = "DONE\r\n"
-    var expect = ""
-    var line = await transp.readLine()
-    doAssert(len(line) == BigMessageCount * len(BigMessagePattern))
-    for i in 0..<BigMessageCount:
-      expect.add(BigMessagePattern)
-    doAssert(line == expect)
-    var res = await transp.write(answer)
-    doAssert(res == len(answer))
-    transp.close()
-    await transp.join()
-    server.stop()
-    server.close()
+  proc serveClient7(server: StreamServer, transp: StreamTransport) {.
+      async: (raises: []).} =
+    try:
+      var answer = "DONE\r\n"
+      var expect = ""
+      var line = await transp.readLine()
+      doAssert(len(line) == BigMessageCount * len(BigMessagePattern))
+      for i in 0..<BigMessageCount:
+        expect.add(BigMessagePattern)
+      doAssert(line == expect)
+      var res = await transp.write(answer)
+      doAssert(res == len(answer))
+      transp.close()
+      await transp.join()
+      server.stop()
+      server.close()
+    except CatchableError as exc:
+      raiseAssert exc.msg
 
-  proc serveClient8(server: StreamServer, transp: StreamTransport) {.async.} =
-    var answer = "DONE\r\n"
-    var strpattern = BigMessagePattern
-    var pattern = newSeq[byte](len(BigMessagePattern))
-    var expect = newSeq[byte]()
-    var data = newSeq[byte]((BigMessageCount + 1) * len(BigMessagePattern))
-    var sep = @[0x0D'u8, 0x0A'u8]
-    copyMem(addr pattern[0], addr strpattern[0], len(BigMessagePattern))
-    var count = await transp.readUntil(addr data[0], len(data), sep = sep)
-    doAssert(count == BigMessageCount * len(BigMessagePattern) + 2)
-    for i in 0..<BigMessageCount:
-      expect.add(pattern)
-    expect.add(sep)
-    data.setLen(count)
-    doAssert(expect == data)
-    var res = await transp.write(answer)
-    doAssert(res == len(answer))
-    transp.close()
-    await transp.join()
-    server.stop()
-    server.close()
+  proc serveClient8(server: StreamServer, transp: StreamTransport) {.
+      async: (raises: []).} =
+    try:
+      var answer = "DONE\r\n"
+      var strpattern = BigMessagePattern
+      var pattern = newSeq[byte](len(BigMessagePattern))
+      var expect = newSeq[byte]()
+      var data = newSeq[byte]((BigMessageCount + 1) * len(BigMessagePattern))
+      var sep = @[0x0D'u8, 0x0A'u8]
+      copyMem(addr pattern[0], addr strpattern[0], len(BigMessagePattern))
+      var count = await transp.readUntil(addr data[0], len(data), sep = sep)
+      doAssert(count == BigMessageCount * len(BigMessagePattern) + 2)
+      for i in 0..<BigMessageCount:
+        expect.add(pattern)
+      expect.add(sep)
+      data.setLen(count)
+      doAssert(expect == data)
+      var res = await transp.write(answer)
+      doAssert(res == len(answer))
+      transp.close()
+      await transp.join()
+      server.stop()
+      server.close()
+    except CatchableError as exc:
+      raiseAssert exc.msg
 
   proc swarmWorker1(address: TransportAddress): Future[int] {.async.} =
     var transp = await connect(address)
@@ -348,7 +372,7 @@ suite "Stream Transport test suite":
   proc test1(address: TransportAddress): Future[int] {.async.} =
     var server = createStreamServer(address, serveClient1, {ReuseAddr})
     server.start()
-    result = await swarmManager1(address)
+    result = await swarmManager1(server.local)
     server.stop()
     server.close()
     await server.join()
@@ -356,7 +380,7 @@ suite "Stream Transport test suite":
   proc test2(address: TransportAddress): Future[int] {.async.} =
     var server = createStreamServer(address, serveClient2, {ReuseAddr})
     server.start()
-    result = await swarmManager2(address)
+    result = await swarmManager2(server.local)
     server.stop()
     server.close()
     await server.join()
@@ -364,7 +388,7 @@ suite "Stream Transport test suite":
   proc test3(address: TransportAddress): Future[int] {.async.} =
     var server = createStreamServer(address, serveClient3, {ReuseAddr})
     server.start()
-    result = await swarmManager3(address)
+    result = await swarmManager3(server.local)
     server.stop()
     server.close()
     await server.join()
@@ -372,7 +396,7 @@ suite "Stream Transport test suite":
   proc testSendFile(address: TransportAddress): Future[int] {.async.} =
     var server = createStreamServer(address, serveClient4, {ReuseAddr})
     server.start()
-    result = await swarmManager4(address)
+    result = await swarmManager4(server.local)
     server.stop()
     server.close()
     await server.join()
@@ -399,39 +423,47 @@ suite "Stream Transport test suite":
         var res = workers[i].read()
         result += res
 
-    proc serveClient(server: StreamServer, transp: StreamTransport) {.async.} =
-      var data = await transp.read()
-      doAssert(len(data) == len(ConstantMessage) * MessagesCount)
-      transp.close()
-      var expect = ""
-      for i in 0..<MessagesCount:
-        expect.add(ConstantMessage)
-      doAssert(equalMem(addr expect[0], addr data[0], len(data)))
-      dec(counter)
-      if counter == 0:
-        server.stop()
-        server.close()
+    proc serveClient(server: StreamServer, transp: StreamTransport) {.
+        async: (raises: []).} =
+      try:
+        var data = await transp.read()
+        doAssert(len(data) == len(ConstantMessage) * MessagesCount)
+        transp.close()
+        var expect = ""
+        for i in 0..<MessagesCount:
+          expect.add(ConstantMessage)
+        doAssert(equalMem(addr expect[0], addr data[0], len(data)))
+        dec(counter)
+        if counter == 0:
+          server.stop()
+          server.close()
+      except CatchableError as exc:
+        raiseAssert exc.msg
 
     var server = createStreamServer(address, serveClient, {ReuseAddr})
     server.start()
-    result = await swarmManager(address)
+    result = await swarmManager(server.local)
     await server.join()
 
   proc testWCR(address: TransportAddress): Future[int] {.async.} =
     var counter = ClientsCount
 
-    proc serveClient(server: StreamServer, transp: StreamTransport) {.async.} =
-      var expect = ConstantMessage
-      var skip = await transp.consume(len(ConstantMessage) * (MessagesCount - 1))
-      doAssert(skip == len(ConstantMessage) * (MessagesCount - 1))
-      var data = await transp.read()
-      doAssert(len(data) == len(ConstantMessage))
-      transp.close()
-      doAssert(equalMem(addr data[0], addr expect[0], len(expect)))
-      dec(counter)
-      if counter == 0:
-        server.stop()
-        server.close()
+    proc serveClient(server: StreamServer, transp: StreamTransport) {.
+        async: (raises: []).} =
+      try:
+        var expect = ConstantMessage
+        var skip = await transp.consume(len(ConstantMessage) * (MessagesCount - 1))
+        doAssert(skip == len(ConstantMessage) * (MessagesCount - 1))
+        var data = await transp.read()
+        doAssert(len(data) == len(ConstantMessage))
+        transp.close()
+        doAssert(equalMem(addr data[0], addr expect[0], len(expect)))
+        dec(counter)
+        if counter == 0:
+          server.stop()
+          server.close()
+      except CatchableError as exc:
+        raiseAssert exc.msg
 
     proc swarmWorker(address: TransportAddress): Future[int] {.async.} =
       var transp = await connect(address)
@@ -456,13 +488,13 @@ suite "Stream Transport test suite":
 
     var server = createStreamServer(address, serveClient, {ReuseAddr})
     server.start()
-    result = await swarmManager(address)
+    result = await swarmManager(server.local)
     await server.join()
 
   proc test7(address: TransportAddress): Future[int] {.async.} =
     var server = createStreamServer(address, serveClient7, {ReuseAddr})
     server.start()
-    result = await swarmWorker7(address)
+    result = await swarmWorker7(server.local)
     server.stop()
     server.close()
     await server.join()
@@ -470,7 +502,7 @@ suite "Stream Transport test suite":
   proc test8(address: TransportAddress): Future[int] {.async.} =
     var server = createStreamServer(address, serveClient8, {ReuseAddr})
     server.start()
-    result = await swarmWorker8(address)
+    result = await swarmWorker8(server.local)
     await server.join()
 
   # proc serveClient9(server: StreamServer, transp: StreamTransport) {.async.} =
@@ -534,11 +566,15 @@ suite "Stream Transport test suite":
   #   server.close()
   #   await server.join()
 
-  proc serveClient11(server: StreamServer, transp: StreamTransport) {.async.} =
-    var res = await transp.write(BigMessagePattern)
-    doAssert(res == len(BigMessagePattern))
-    transp.close()
-    await transp.join()
+  proc serveClient11(server: StreamServer, transp: StreamTransport) {.
+      async: (raises: []).} =
+    try:
+      var res = await transp.write(BigMessagePattern)
+      doAssert(res == len(BigMessagePattern))
+      transp.close()
+      await transp.join()
+    except CatchableError as exc:
+      raiseAssert exc.msg
 
   proc swarmWorker11(address: TransportAddress): Future[int] {.async.} =
     var buffer: array[len(BigMessagePattern) + 1, byte]
@@ -553,16 +589,20 @@ suite "Stream Transport test suite":
   proc test11(address: TransportAddress): Future[int] {.async.} =
     var server = createStreamServer(address, serveClient11, {ReuseAddr})
     server.start()
-    result = await swarmWorker11(address)
+    result = await swarmWorker11(server.local)
     server.stop()
     server.close()
     await server.join()
 
-  proc serveClient12(server: StreamServer, transp: StreamTransport) {.async.} =
-    var res = await transp.write(BigMessagePattern)
-    doAssert(res == len(BigMessagePattern))
-    transp.close()
-    await transp.join()
+  proc serveClient12(server: StreamServer, transp: StreamTransport) {.
+      async: (raises: []).} =
+    try:
+      var res = await transp.write(BigMessagePattern)
+      doAssert(res == len(BigMessagePattern))
+      transp.close()
+      await transp.join()
+    except CatchableError as exc:
+      raiseAssert exc.msg
 
   proc swarmWorker12(address: TransportAddress): Future[int] {.async.} =
     var buffer: array[len(BigMessagePattern), byte]
@@ -579,14 +619,18 @@ suite "Stream Transport test suite":
   proc test12(address: TransportAddress): Future[int] {.async.} =
     var server = createStreamServer(address, serveClient12, {ReuseAddr})
     server.start()
-    result = await swarmWorker12(address)
+    result = await swarmWorker12(server.local)
     server.stop()
     server.close()
     await server.join()
 
-  proc serveClient13(server: StreamServer, transp: StreamTransport) {.async.} =
-    transp.close()
-    await transp.join()
+  proc serveClient13(server: StreamServer, transp: StreamTransport) {.
+      async: (raises: []).} =
+    try:
+      transp.close()
+      await transp.join()
+    except CatchableError as exc:
+      raiseAssert exc.msg
 
   proc swarmWorker13(address: TransportAddress): Future[int] {.async.} =
     var transp = await connect(address)
@@ -601,7 +645,7 @@ suite "Stream Transport test suite":
   proc test13(address: TransportAddress): Future[int] {.async.} =
     var server = createStreamServer(address, serveClient13, {ReuseAddr})
     server.start()
-    result = await swarmWorker13(address)
+    result = await swarmWorker13(server.local)
     server.stop()
     server.close()
     await server.join()
@@ -621,7 +665,7 @@ suite "Stream Transport test suite":
         subres = 0
 
     server.start()
-    var transp = await connect(address)
+    var transp = await connect(server.local)
     var fut = swarmWorker(transp)
     # We perfrom shutdown(SHUT_RD/SD_RECEIVE) for the socket, in such way its
     # possible to emulate socket's EOF.
@@ -645,11 +689,15 @@ suite "Stream Transport test suite":
       else:
         return (e.code == oserrno.ECONNREFUSED) or (e.code == oserrno.ENOENT)
 
-  proc serveClient16(server: StreamServer, transp: StreamTransport) {.async.} =
-    var res = await transp.write(BigMessagePattern)
-    doAssert(res == len(BigMessagePattern))
-    transp.close()
-    await transp.join()
+  proc serveClient16(server: StreamServer, transp: StreamTransport) {.
+      async: (raises: []).} =
+    try:
+      var res = await transp.write(BigMessagePattern)
+      doAssert(res == len(BigMessagePattern))
+      transp.close()
+      await transp.join()
+    except CatchableError as exc:
+      raiseAssert exc.msg
 
   proc swarmWorker16(address: TransportAddress): Future[int] {.async.} =
     var buffer = newString(5)
@@ -674,13 +722,14 @@ suite "Stream Transport test suite":
   proc test16(address: TransportAddress): Future[int] {.async.} =
     var server = createStreamServer(address, serveClient16, {ReuseAddr})
     server.start()
-    result = await swarmWorker16(address)
+    result = await swarmWorker16(server.local)
     server.stop()
     server.close()
     await server.join()
 
   proc testCloseTransport(address: TransportAddress): Future[int] {.async.} =
-    proc client(server: StreamServer, transp: StreamTransport) {.async.} =
+    proc client(server: StreamServer, transp: StreamTransport) {.
+        async: (raises: []).} =
       discard
     var server = createStreamServer(address, client, {ReuseAddr})
     server.start()
@@ -694,14 +743,17 @@ suite "Stream Transport test suite":
 
   proc testWriteConnReset(address: TransportAddress): Future[int] {.async.} =
     var syncFut = newFuture[void]()
-    proc client(server: StreamServer, transp: StreamTransport) {.async.} =
-      await transp.closeWait()
-      syncFut.complete()
+    proc client(server: StreamServer, transp: StreamTransport) {.async: (raises: []).} =
+      try:
+        await transp.closeWait()
+        syncFut.complete()
+      except CatchableError as exc:
+        raiseAssert exc.msg
     var n = 10
     var server = createStreamServer(address, client, {ReuseAddr})
     server.start()
     var msg = "HELLO"
-    var ntransp = await connect(address)
+    var ntransp = await connect(server.local)
     await syncFut
     while true:
       var res = await ntransp.write(msg)
@@ -721,12 +773,16 @@ suite "Stream Transport test suite":
     var serverRemote, serverLocal: TransportAddress
     var connRemote, connLocal: TransportAddress
 
-    proc serveClient(server: StreamServer, transp: StreamTransport) {.async.} =
-      serverRemote = transp.remoteAddress()
-      serverLocal = transp.localAddress()
-      await transp.closeWait()
-      server.stop()
-      server.close()
+    proc serveClient(server: StreamServer, transp: StreamTransport) {.
+        async: (raises: []).} =
+      try:
+        serverRemote = transp.remoteAddress()
+        serverLocal = transp.localAddress()
+        await transp.closeWait()
+        server.stop()
+        server.close()
+      except CatchableError as exc:
+        raiseAssert exc.msg
 
     var ta = initTAddress("0.0.0.0:0")
     var server = createStreamServer(ta, serveClient, {ReuseAddr})
@@ -748,13 +804,17 @@ suite "Stream Transport test suite":
     var bigMessageSize = 10 * 1024 * 1024 - 1
     var finishMessage = "DONE"
     var cdata = newSeqOfCap[byte](bigMessageSize)
-    proc serveClient(server: StreamServer, transp: StreamTransport) {.async.} =
-      cdata = await transp.read(bigMessageSize)
-      var size = await transp.write(finishMessage)
-      doAssert(size == len(finishMessage))
-      await transp.closeWait()
-      server.stop()
-      server.close()
+    proc serveClient(server: StreamServer, transp: StreamTransport) {.
+        async: (raises: []).} =
+      try:
+        cdata = await transp.read(bigMessageSize)
+        var size = await transp.write(finishMessage)
+        doAssert(size == len(finishMessage))
+        await transp.closeWait()
+        server.stop()
+        server.close()
+      except CatchableError as exc:
+        raiseAssert exc.msg
 
     var flag = false
     var server = createStreamServer(address, serveClient, {ReuseAddr})
@@ -763,7 +823,7 @@ suite "Stream Transport test suite":
     var transp: StreamTransport
 
     try:
-      transp = await connect(address)
+      transp = await connect(server.local)
       flag = true
     except CatchableError:
       server.stop()
@@ -787,40 +847,45 @@ suite "Stream Transport test suite":
     result = flag
 
   proc testReadLine(address: TransportAddress): Future[bool] {.async.} =
-    proc serveClient(server: StreamServer, transp: StreamTransport) {.async.} =
-      discard await transp.write("DATA\r\r\r\r\r\n")
-      transp.close()
-      await transp.join()
+    proc serveClient(server: StreamServer, transp: StreamTransport) {.
+        async: (raises: []).} =
+      try:
+        discard await transp.write("DATA\r\r\r\r\r\n")
+        transp.close()
+        await transp.join()
+      except CatchableError as exc:
+        raiseAssert exc.msg
+
 
     var server = createStreamServer(address, serveClient, {ReuseAddr})
     server.start()
     try:
       var r1, r2, r3, r4, r5: string
-      var t1 = await connect(address)
+      var t1 = await connect(server.local)
       try:
         r1 = await t1.readLine(4)
       finally:
         await t1.closeWait()
 
-      var t2 = await connect(address)
+      var t2 = await connect(server.local)
       try:
         r2 = await t2.readLine(6)
       finally:
         await t2.closeWait()
 
-      var t3 = await connect(address)
+      var t3 = await connect(server.local)
       try:
         r3 = await t3.readLine(8)
       finally:
         await t3.closeWait()
 
-      var t4 = await connect(address)
+      var t4 = await connect(server.local)
       try:
         r4 = await t4.readLine(8)
       finally:
         await t4.closeWait()
 
-      var t5 = await connect(address)
+      var t5 = await connect(server.local)
       try:
         r5 = await t5.readLine()
       finally:
@@ -895,57 +960,61 @@ suite "Stream Transport test suite":
     var state = 0
     var c1, c2, c3, c4, c5, c6, c7: bool
 
-    proc serveClient(server: StreamServer, transp: StreamTransport) {.async.} =
-      if state == 0:
-        # EOF from the beginning.
-        state = 1
-        await transp.closeWait()
-      elif state == 1:
-        # Message has only zero-size header.
-        var message = createLVMessage(0'u32)
-        discard await transp.write(message)
-        state = 2
-        await transp.closeWait()
-      elif state == 2:
-        # Message has header, but do not have any data at all.
-        var message = createLVMessage(4'u32)
-        message.setLen(4)
-        discard await transp.write(message)
-        state = 3
-        await transp.closeWait()
-      elif state == 3:
-        # Message do not have enough data for specified size in header.
-        var message = createLVMessage(1024'u32)
-        message.setLen(1024)
-        discard await transp.write(message)
-        state = 4
-        await transp.closeWait()
-      elif state == 4:
-        # Good encoded message with oversize.
-        var message = createLVMessage(1024'u32)
-        discard await transp.write(message)
-        state = 5
-        await transp.closeWait()
-      elif state == 5:
-        # Good encoded message.
-        var message = createLVMessage(1024'u32)
-        discard await transp.write(message)
-        state = 6
-        await transp.closeWait()
-      elif state == 6:
-        # Good encoded message with additional data.
-        var message = createLVMessage(1024'u32)
-        discard await transp.write(message)
-        discard await transp.write("DONE")
-        state = 7
-        await transp.closeWait()
-      else:
-        doAssert(false)
+    proc serveClient(server: StreamServer, transp: StreamTransport) {.
+        async: (raises: []).} =
+      try:
+        if state == 0:
+          # EOF from the beginning.
+          state = 1
+          await transp.closeWait()
+        elif state == 1:
+          # Message has only zero-size header.
+          var message = createLVMessage(0'u32)
+          discard await transp.write(message)
+          state = 2
+          await transp.closeWait()
+        elif state == 2:
+          # Message has header, but do not have any data at all.
+          var message = createLVMessage(4'u32)
+          message.setLen(4)
+          discard await transp.write(message)
+          state = 3
+          await transp.closeWait()
+        elif state == 3:
+          # Message do not have enough data for specified size in header.
+          var message = createLVMessage(1024'u32)
+          message.setLen(1024)
+          discard await transp.write(message)
+          state = 4
+          await transp.closeWait()
+        elif state == 4:
+          # Good encoded message with oversize.
+          var message = createLVMessage(1024'u32)
+          discard await transp.write(message)
+          state = 5
+          await transp.closeWait()
+        elif state == 5:
+          # Good encoded message.
+          var message = createLVMessage(1024'u32)
+          discard await transp.write(message)
+          state = 6
+          await transp.closeWait()
+        elif state == 6:
+          # Good encoded message with additional data.
+          var message = createLVMessage(1024'u32)
+          discard await transp.write(message)
+          discard await transp.write("DONE")
+          state = 7
+          await transp.closeWait()
+        else:
+          doAssert(false)
+      except CatchableError as exc:
+        raiseAssert exc.msg
 
     var server = createStreamServer(address, serveClient, {ReuseAddr})
     server.start()
 
-    var t1 = await connect(address)
+    var t1 = await connect(server.local)
     try:
       discard await t1.readLV(2000)
     except TransportIncompleteError:
@@ -959,7 +1028,7 @@ suite "Stream Transport test suite":
       await server.join()
       return false
 
-    var t2 = await connect(address)
+    var t2 = await connect(server.local)
     try:
       var r2 = await t2.readLV(2000)
       c2 = (r2 == @[])
@@ -972,7 +1041,7 @@ suite "Stream Transport test suite":
       await server.join()
       return false
 
-    var t3 = await connect(address)
+    var t3 = await connect(server.local)
     try:
       discard await t3.readLV(2000)
     except TransportIncompleteError:
@@ -986,7 +1055,7 @@ suite "Stream Transport test suite":
       await server.join()
       return false
 
-    var t4 = await connect(address)
+    var t4 = await connect(server.local)
     try:
       discard await t4.readLV(2000)
     except TransportIncompleteError:
@@ -1000,7 +1069,7 @@ suite "Stream Transport test suite":
       await server.join()
       return false
 
-    var t5 = await connect(address)
+    var t5 = await connect(server.local)
     try:
       discard await t5.readLV(1000)
     except ValueError:
@@ -1014,7 +1083,7 @@ suite "Stream Transport test suite":
       await server.join()
       return false
 
-    var t6 = await connect(address)
+    var t6 = await connect(server.local)
     try:
       var expectMsg = createMessage(1024)
       var r6 = await t6.readLV(2000)
@@ -1029,7 +1098,7 @@ suite "Stream Transport test suite":
       await server.join()
       return false
 
-    var t7 = await connect(address)
+    var t7 = await connect(server.local)
     try:
       var expectMsg = createMessage(1024)
       var expectDone = "DONE"
@@ -1062,7 +1131,7 @@ suite "Stream Transport test suite":
 
     try:
       for i in 0 ..< TestsCount:
-        transp = await connect(address)
+        transp = await connect(server.local)
         await sleepAsync(10.milliseconds)
         await transp.closeWait()
         inc(connected)
@@ -1117,7 +1186,7 @@ suite "Stream Transport test suite":
       try:
         for i in 0 ..< 3:
           try:
-            let transp = await connect(address)
+            let transp = await connect(server.local)
             await sleepAsync(10.milliseconds)
             await transp.closeWait()
           except TransportTooManyError:
@@ -1166,7 +1235,7 @@ suite "Stream Transport test suite":
       await server.closeWait()
 
     var acceptFut = acceptTask(server)
-    var transp = await connect(address)
+    var transp = await connect(server.local)
     await server.join()
     await transp.closeWait()
     await acceptFut
@@ -1187,7 +1256,7 @@ suite "Stream Transport test suite":
       await server.closeWait()
 
     var acceptFut = acceptTask(server)
-    var transp = await connect(address)
+    var transp = await connect(server.local)
     await server.join()
     await transp.closeWait()
     await acceptFut
@@ -1259,46 +1328,160 @@ suite "Stream Transport test suite":
     return buffer == message
 
   proc testConnectBindLocalAddress() {.async.} =
-    let dst1 = initTAddress("127.0.0.1:33335")
-    let dst2 = initTAddress("127.0.0.1:33336")
-    let dst3 = initTAddress("127.0.0.1:33337")
 
-    proc client(server: StreamServer, transp: StreamTransport) {.async.} =
-      await transp.closeWait()
+    proc client(server: StreamServer, transp: StreamTransport) {.async: (raises: []).} =
+      try:
+        await transp.closeWait()
+      except CatchableError as exc:
+        raiseAssert exc.msg
 
-    # We use ReuseAddr here only to be able to reuse the same IP/Port when there's a TIME_WAIT socket. It's useful when
-    # running the test multiple times or if a test ran previously used the same port.
-    let servers =
-      [createStreamServer(dst1, client, {ReuseAddr}),
-       createStreamServer(dst2, client, {ReuseAddr}),
-       createStreamServer(dst3, client, {ReusePort})]
+    let server1 = createStreamServer(initTAddress("127.0.0.1:0"), client)
+    let server2 = createStreamServer(initTAddress("127.0.0.1:0"), client)
+    let server3 = createStreamServer(initTAddress("127.0.0.1:0"), client, {ReusePort})
 
-    for server in servers:
-      server.start()
+    server1.start()
+    server2.start()
+    server3.start()
 
-    let ta = initTAddress("0.0.0.0:35000")
-
-    # It works cause there's no active listening socket bound to ta and we are using ReuseAddr
-    var transp1 = await connect(dst1, localAddress = ta, flags={SocketFlags.ReuseAddr})
-    var transp2 = await connect(dst2, localAddress = ta, flags={SocketFlags.ReuseAddr})
-
-    # It works cause even thought there's an active listening socket bound to dst3, we are using ReusePort
-    var transp3 = await connect(dst2, localAddress = dst3, flags={SocketFlags.ReusePort})
+    # It works cause even though there's an active listening socket bound to
+    # dst3, we are using ReusePort
+    var transp1 = await connect(
+      server1.localAddress(), localAddress = server3.localAddress(),
+      flags = {SocketFlags.ReusePort})
+    var transp2 = await connect(
+      server2.localAddress(), localAddress = server3.localAddress(),
+      flags = {SocketFlags.ReusePort})
 
     expect(TransportOsError):
-      var transp2 {.used.} = await connect(dst3, localAddress = ta)
+      var transp2 {.used.} = await connect(
+        server2.localAddress(), localAddress = server3.localAddress())
 
     expect(TransportOsError):
-      var transp3 {.used.} =
-        await connect(dst3, localAddress = initTAddress(":::35000"))
+      var transp3 {.used.} = await connect(
+        server2.localAddress(),
+        localAddress = initTAddress("::", server3.localAddress().port))
 
     await transp1.closeWait()
     await transp2.closeWait()
-    await transp3.closeWait()
 
-    for server in servers:
+    server1.stop()
+    await server1.closeWait()
+
+    server2.stop()
+    await server2.closeWait()
+
+    server3.stop()
+    await server3.closeWait()
+
+  proc testConnectCancelLeaksTest() {.async.} =
+    proc client(server: StreamServer, transp: StreamTransport) {.async: (raises: []).} =
+      try:
+        await transp.closeWait()
+      except CatchableError as exc:
+        raiseAssert exc.msg
+
+    let
+      server = createStreamServer(initTAddress("127.0.0.1:0"), client)
+      address = server.localAddress()
+
+    var counter = 0
+    while true:
+      let transpFut = connect(address)
+      if counter > 0:
+        await stepsAsync(counter)
+      if not(transpFut.finished()):
+        await cancelAndWait(transpFut)
+        doAssert(cancelled(transpFut),
+                 "Future should be Cancelled at this point")
+        inc(counter)
+      else:
+        let transp = await transpFut
+        await transp.closeWait()
+        break
+    server.stop()
+    await server.closeWait()
+
+  proc testAcceptCancelLeaksTest() {.async.} =
+    var
+      counter = 0
+      exitLoop = false
+
+    # This timer will help to awake events poll in case its going to stuck
+    # usually happens on MacOS.
+    let sleepFut = sleepAsync(1.seconds)
+
+    while not(exitLoop):
+      let
+        server = createStreamServer(initTAddress("127.0.0.1:0"))
+        address = server.localAddress()
+
+      let
+        transpFut = connect(address)
+        acceptFut = server.accept()
+
+      if counter > 0:
+        await stepsAsync(counter)
+
+      exitLoop =
+        if not(acceptFut.finished()):
+          await cancelAndWait(acceptFut)
+          doAssert(cancelled(acceptFut),
+                   "Future should be Cancelled at this point")
+          inc(counter)
+          false
+        else:
+          let transp = await acceptFut
+          await transp.closeWait()
+          true
+
+      if not(transpFut.finished()):
+        await transpFut.cancelAndWait()
+
+      if transpFut.completed():
+        let transp = transpFut.value
+        await transp.closeWait()
+
       server.stop()
       await server.closeWait()
+
+    if not(sleepFut.finished()):
+      await cancelAndWait(sleepFut)
+
+  proc performDualstackTest(
+         sstack: DualStackType, saddr: TransportAddress,
+         cstack: DualStackType, caddr: TransportAddress
+       ): Future[bool] {.async.} =
+    let server = createStreamServer(saddr, dualstack = sstack)
+    var address = caddr
+    address.port = server.localAddress().port
+    var acceptFut = server.accept()
+    let
+      clientTransp =
+        try:
+          let res = await connect(address,
+                                  dualstack = cstack).wait(500.milliseconds)
+          Opt.some(res)
+        except CatchableError:
+          Opt.none(StreamTransport)
+      serverTransp =
+        if clientTransp.isSome():
+          let res = await acceptFut
+          Opt.some(res)
+        else:
+          Opt.none(StreamTransport)
+
+    let testResult = clientTransp.isSome() and serverTransp.isSome()
+    var pending: seq[FutureBase]
+    if clientTransp.isSome():
+      pending.add(closeWait(clientTransp.get()))
+    if serverTransp.isSome():
+      pending.add(closeWait(serverTransp.get()))
+    else:
+      pending.add(cancelAndWait(acceptFut))
+    await allFutures(pending)
+    server.stop()
+    await server.closeWait()
+    testResult
 
   markFD = getCurrentFD()
 
@@ -1339,7 +1522,10 @@ suite "Stream Transport test suite":
         else:
           skip()
       else:
-        check waitFor(testSendFile(addresses[i])) == FilesCount
+        if defined(emscripten):
+          skip()
+        else:
+          check waitFor(testSendFile(addresses[i])) == FilesCount
     test prefixes[i] & "Connection refused test":
       var address: TransportAddress
       if addresses[i].family == AddressFamily.Unix:
@@ -1388,8 +1574,103 @@ suite "Stream Transport test suite":
       check waitFor(testReadOnClose(addresses[i])) == true
   test "[PIPE] readExactly()/write() test":
     check waitFor(testPipe()) == true
-  test "[IP] bind connect to local address":
+  test "[IP] bind connect to local address test":
     waitFor(testConnectBindLocalAddress())
+  test "[IP] connect() cancellation leaks test":
+    waitFor(testConnectCancelLeaksTest())
+  test "[IP] accept() cancellation leaks test":
+    waitFor(testAcceptCancelLeaksTest())
+  asyncTest "[IP] getDomain(socket) [SOCK_STREAM] test":
+    if isAvailable(AddressFamily.IPv4) and isAvailable(AddressFamily.IPv6):
+      block:
+        let res = createAsyncSocket2(Domain.AF_INET, SockType.SOCK_STREAM,
+                                     Protocol.IPPROTO_TCP)
+        check res.isOk()
+        let fres = getDomain(res.get())
+        check fres.isOk()
+        discard unregisterAndCloseFd(res.get())
+        check fres.get() == AddressFamily.IPv4
+
+      block:
+        let res = createAsyncSocket2(Domain.AF_INET6, SockType.SOCK_STREAM,
+                                     Protocol.IPPROTO_TCP)
+        check res.isOk()
+        let fres = getDomain(res.get())
+        check fres.isOk()
+        discard unregisterAndCloseFd(res.get())
+        check fres.get() == AddressFamily.IPv6
+
+      when not(defined(windows)):
+        block:
+          let res = createAsyncSocket2(Domain.AF_UNIX, SockType.SOCK_STREAM,
+                                       Protocol.IPPROTO_IP)
+          check res.isOk()
+          let fres = getDomain(res.get())
+          check fres.isOk()
+          discard unregisterAndCloseFd(res.get())
+          check fres.get() == AddressFamily.Unix
+    else:
+      skip()
+  asyncTest "[IP] DualStack [TCP] server [DualStackType.Auto] test":
+    if isAvailable(AddressFamily.IPv4) and isAvailable(AddressFamily.IPv6):
+      let serverAddress = initTAddress("[::]:0")
+      check:
+        (await performDualstackTest(
+           DualStackType.Auto, serverAddress,
+           DualStackType.Auto, initTAddress("127.0.0.1:0"))) == true
+        (await performDualstackTest(
+           DualStackType.Auto, serverAddress,
+           DualStackType.Auto, initTAddress("127.0.0.1:0").toIPv6())) == true
+        (await performDualstackTest(
+           DualStackType.Auto, serverAddress,
+           DualStackType.Auto, initTAddress("[::1]:0"))) == true
+    else:
+      skip()
+  asyncTest "[IP] DualStack [TCP] server [DualStackType.Enabled] test":
+    if isAvailable(AddressFamily.IPv4) and isAvailable(AddressFamily.IPv6):
+      let serverAddress = initTAddress("[::]:0")
+      check:
+        (await performDualstackTest(
+           DualStackType.Enabled, serverAddress,
+           DualStackType.Auto, initTAddress("127.0.0.1:0"))) == true
+        (await performDualstackTest(
+           DualStackType.Enabled, serverAddress,
+           DualStackType.Auto, initTAddress("127.0.0.1:0").toIPv6())) == true
+        (await performDualstackTest(
+           DualStackType.Enabled, serverAddress,
+           DualStackType.Auto, initTAddress("[::1]:0"))) == true
+    else:
+      skip()
+  asyncTest "[IP] DualStack [TCP] server [DualStackType.Disabled] test":
+    if isAvailable(AddressFamily.IPv4) and isAvailable(AddressFamily.IPv6):
+      let serverAddress = initTAddress("[::]:0")
+      check:
+        (await performDualstackTest(
+           DualStackType.Disabled, serverAddress,
+           DualStackType.Auto, initTAddress("127.0.0.1:0"))) == false
+        (await performDualstackTest(
+           DualStackType.Disabled, serverAddress,
+           DualStackType.Auto, initTAddress("127.0.0.1:0").toIPv6())) == false
+        (await performDualstackTest(
+           DualStackType.Disabled, serverAddress,
+           DualStackType.Auto, initTAddress("[::1]:0"))) == true
+    else:
+      skip()
+  asyncTest "[IP] DualStack [TCP] connect [IPv4 mapped address] test":
+    if isAvailable(AddressFamily.IPv4) and isAvailable(AddressFamily.IPv6):
+      let serverAddress = initTAddress("[::]:0")
+      check:
+        (await performDualstackTest(
+           DualStackType.Auto, serverAddress,
+           DualStackType.Disabled, initTAddress("127.0.0.1:0"))) == true
+        (await performDualstackTest(
+           DualStackType.Auto, serverAddress,
+           DualStackType.Disabled, initTAddress("127.0.0.1:0").toIPv6())) == false
+        (await performDualstackTest(
+           DualStackType.Auto, serverAddress,
+           DualStackType.Disabled, initTAddress("[::1]:0"))) == true
+    else:
+      skip()
   test "Leaks test":
     checkLeaks()
   test "File descriptors leak test":

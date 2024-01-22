@@ -97,12 +97,12 @@ proc new*(t: typedesc[Selector], T: typedesc): SelectResult[Selector[T]] =
   var nmask: Sigset
   if sigemptyset(nmask) < 0:
     return err(osLastError())
-  let epollFd = epoll_create(asyncEventsCount)
+  let epollFd = epoll_create(chronosEventsCount)
   if epollFd < 0:
     return err(osLastError())
   let selector = Selector[T](
     epollFd: epollFd,
-    fds: initTable[int32, SelectorKey[T]](asyncInitialSize),
+    fds: initTable[int32, SelectorKey[T]](chronosInitialSize),
     signalMask: nmask,
     virtualId: -1'i32, # Should start with -1, because `InvalidIdent` == -1
     childrenExited: false,
@@ -411,7 +411,7 @@ proc registerProcess*[T](s: Selector, pid: int, data: T): SelectResult[cint] =
       s.freeKey(fdi32)
       s.freeProcess(int32(pid))
       return err(res.error())
-    s.pidFd = Opt.some(cast[cint](res.get()))
+    s.pidFd = Opt.some(res.get())
 
   ok(cint(fdi32))
 
@@ -627,7 +627,7 @@ proc selectInto2*[T](s: Selector[T], timeout: int,
                      readyKeys: var openArray[ReadyKey]
                     ): SelectResult[int] =
   var
-    queueEvents: array[asyncEventsCount, EpollEvent]
+    queueEvents: array[chronosEventsCount, EpollEvent]
     k: int = 0
 
   verifySelectParams(timeout, -1, int(high(cint)))
@@ -668,7 +668,7 @@ proc selectInto2*[T](s: Selector[T], timeout: int,
   ok(k)
 
 proc select2*[T](s: Selector[T], timeout: int): SelectResult[seq[ReadyKey]] =
-  var res = newSeq[ReadyKey](asyncEventsCount)
+  var res = newSeq[ReadyKey](chronosEventsCount)
   let count = ? selectInto2(s, timeout, res)
   res.setLen(count)
   ok(res)

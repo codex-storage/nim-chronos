@@ -122,6 +122,7 @@ when defined(windows):
     SO_UPDATE_ACCEPT_CONTEXT* = 0x700B
     SO_CONNECT_TIME* = 0x700C
     SO_UPDATE_CONNECT_CONTEXT* = 0x7010
+    SO_PROTOCOL_INFOW* = 0x2005
 
     FILE_FLAG_FIRST_PIPE_INSTANCE* = 0x00080000'u32
     FILE_FLAG_OPEN_NO_RECALL* = 0x00100000'u32
@@ -258,6 +259,9 @@ when defined(windows):
     FIONBIO* = WSAIOW(102, 126)
 
     HANDLE_FLAG_INHERIT* = 1'u32
+    IPV6_V6ONLY* = 27
+    MAX_PROTOCOL_CHAIN* = 7
+    WSAPROTOCOL_LEN* = 255
 
   type
     LONG* = int32
@@ -440,6 +444,32 @@ when defined(windows):
     IPADDRESS_PREFIX* {.final, pure.} = object
       prefix*: SOCKADDR_INET
       prefixLength*: uint8
+
+    WSAPROTOCOLCHAIN* {.final, pure.} = object
+      chainLen*: int32
+      chainEntries*: array[MAX_PROTOCOL_CHAIN, DWORD]
+
+    WSAPROTOCOL_INFO* {.final, pure.} = object
+      dwServiceFlags1*: uint32
+      dwServiceFlags2*: uint32
+      dwServiceFlags3*: uint32
+      dwServiceFlags4*: uint32
+      dwProviderFlags*: uint32
+      providerId*: GUID
+      dwCatalogEntryId*: DWORD
+      protocolChain*: WSAPROTOCOLCHAIN
+      iVersion*: int32
+      iAddressFamily*: int32
+      iMaxSockAddr*: int32
+      iMinSockAddr*: int32
+      iSocketType*: int32
+      iProtocol*: int32
+      iProtocolMaxOffset*: int32
+      iNetworkByteOrder*: int32
+      iSecurityScheme*: int32
+      dwMessageSize*: uint32
+      dwProviderReserved*: uint32
+      szProtocol*: array[WSAPROTOCOL_LEN + 1, WCHAR]
 
     MibIpForwardRow2* {.final, pure.} = object
       interfaceLuid*: uint64
@@ -708,7 +738,7 @@ when defined(windows):
                     res: var ptr AddrInfo): cint {.
        stdcall, dynlib: "ws2_32", importc: "getaddrinfo", sideEffect.}
 
-  proc freeaddrinfo*(ai: ptr AddrInfo) {.
+  proc freeAddrInfo*(ai: ptr AddrInfo) {.
        stdcall, dynlib: "ws2_32", importc: "freeaddrinfo", sideEffect.}
 
   proc createIoCompletionPort*(fileHandle: HANDLE,
@@ -880,7 +910,7 @@ elif defined(macos) or defined(macosx):
                         sigemptyset, sigaddset, sigismember, fcntl, accept,
                         pipe, write, signal, read, setsockopt, getsockopt,
                         getcwd, chdir, waitpid, kill, select, pselect,
-                        socketpair,
+                        socketpair, poll, freeAddrInfo,
                         Timeval, Timespec, Pid, Mode, Time, Sigset, SockAddr,
                         SockLen, Sockaddr_storage, Sockaddr_in, Sockaddr_in6,
                         Sockaddr_un, SocketHandle, AddrInfo, RLimit, TFdSet,
@@ -890,7 +920,7 @@ elif defined(macos) or defined(macosx):
                         O_NONBLOCK, SOL_SOCKET, SOCK_RAW, SOCK_DGRAM,
                         SOCK_STREAM, MSG_NOSIGNAL, MSG_PEEK,
                         AF_INET, AF_INET6, AF_UNIX, SO_ERROR, SO_REUSEADDR,
-                        SO_REUSEPORT, SO_BROADCAST, IPPROTO_IP,
+                        SO_REUSEPORT, SO_BROADCAST, IPPROTO_IP, IPPROTO_IPV6,
                         IPV6_MULTICAST_HOPS, SOCK_DGRAM, RLIMIT_NOFILE,
                         SIG_BLOCK, SIG_UNBLOCK, SHUT_RD, SHUT_WR, SHUT_RDWR,
                         SIGHUP, SIGINT, SIGQUIT, SIGILL, SIGTRAP, SIGABRT,
@@ -905,7 +935,7 @@ elif defined(macos) or defined(macosx):
          sigemptyset, sigaddset, sigismember, fcntl, accept,
          pipe, write, signal, read, setsockopt, getsockopt,
          getcwd, chdir, waitpid, kill, select, pselect,
-         socketpair,
+         socketpair, poll, freeAddrInfo,
          Timeval, Timespec, Pid, Mode, Time, Sigset, SockAddr,
          SockLen, Sockaddr_storage, Sockaddr_in, Sockaddr_in6,
          Sockaddr_un, SocketHandle, AddrInfo, RLimit, TFdSet,
@@ -915,7 +945,7 @@ elif defined(macos) or defined(macosx):
          O_NONBLOCK, SOL_SOCKET, SOCK_RAW, SOCK_DGRAM,
          SOCK_STREAM, MSG_NOSIGNAL, MSG_PEEK,
          AF_INET, AF_INET6, AF_UNIX, SO_ERROR, SO_REUSEADDR,
-         SO_REUSEPORT, SO_BROADCAST, IPPROTO_IP,
+         SO_REUSEPORT, SO_BROADCAST, IPPROTO_IP, IPPROTO_IPV6,
          IPV6_MULTICAST_HOPS, SOCK_DGRAM, RLIMIT_NOFILE,
          SIG_BLOCK, SIG_UNBLOCK, SHUT_RD, SHUT_WR, SHUT_RDWR,
          SIGHUP, SIGINT, SIGQUIT, SIGILL, SIGTRAP, SIGABRT,
@@ -929,6 +959,21 @@ elif defined(macos) or defined(macosx):
       numer*: uint32
       denom*: uint32
 
+    TPollfd* {.importc: "struct pollfd", pure, final,
+               header: "<poll.h>".} = object
+      fd*: cint
+      events*: cshort
+      revents*: cshort
+
+    Tnfds* {.importc: "nfds_t", header: "<poll.h>".} = cuint
+
+  const
+    POLLIN* = 0x0001
+    POLLOUT* = 0x0004
+    POLLERR* = 0x0008
+    POLLHUP* = 0x0010
+    POLLNVAL* = 0x0020
+
   proc posix_gettimeofday*(tp: var Timeval, unused: pointer = nil) {.
        importc: "gettimeofday", header: "<sys/time.h>".}
 
@@ -937,6 +982,9 @@ elif defined(macos) or defined(macosx):
 
   proc mach_absolute_time*(): uint64 {.
        importc, header: "<mach/mach_time.h>".}
+
+  proc poll*(a1: ptr TPollfd, a2: Tnfds, a3: cint): cint {.
+       importc, header: "<poll.h>", sideEffect.}
 
 elif defined(linux):
   from std/posix import close, shutdown, sigemptyset, sigaddset, sigismember,
@@ -947,20 +995,22 @@ elif defined(linux):
                         unlink, listen, sendmsg, recvmsg, getpid, fcntl,
                         pthread_sigmask, sigprocmask, clock_gettime, signal,
                         getcwd, chdir, waitpid, kill, select, pselect,
-                        socketpair,
+                        socketpair, poll, freeAddrInfo,
                         ClockId, Itimerspec, Timespec, Sigset, Time, Pid, Mode,
                         SigInfo, Id, Tmsghdr, IOVec, RLimit, Timeval, TFdSet,
                         SockAddr, SockLen, Sockaddr_storage, Sockaddr_in,
                         Sockaddr_in6, Sockaddr_un, AddrInfo, SocketHandle,
-                        Suseconds,
+                        Suseconds, TPollfd, Tnfds,
                         FD_CLR, FD_ISSET, FD_SET, FD_ZERO,
                         CLOCK_MONOTONIC, F_GETFL, F_SETFL, F_GETFD, F_SETFD,
                         FD_CLOEXEC, O_NONBLOCK, SIG_BLOCK, SIG_UNBLOCK,
                         SOL_SOCKET, SO_ERROR, RLIMIT_NOFILE, MSG_NOSIGNAL,
                         MSG_PEEK,
                         AF_INET, AF_INET6, AF_UNIX, SO_REUSEADDR, SO_REUSEPORT,
-                        SO_BROADCAST, IPPROTO_IP, IPV6_MULTICAST_HOPS,
+                        SO_BROADCAST, IPPROTO_IP, IPPROTO_IPV6,
+                        IPV6_MULTICAST_HOPS,
                         SOCK_DGRAM, SOCK_STREAM, SHUT_RD, SHUT_WR, SHUT_RDWR,
+                        POLLIN, POLLOUT, POLLERR, POLLHUP, POLLNVAL,
                         SIGHUP, SIGINT, SIGQUIT, SIGILL, SIGTRAP, SIGABRT,
                         SIGBUS, SIGFPE, SIGKILL, SIGUSR1, SIGSEGV, SIGUSR2,
                         SIGPIPE, SIGALRM, SIGTERM, SIGPIPE, SIGCHLD, SIGSTOP,
@@ -974,20 +1024,21 @@ elif defined(linux):
          unlink, listen, sendmsg, recvmsg, getpid, fcntl,
          pthread_sigmask, sigprocmask, clock_gettime, signal,
          getcwd, chdir, waitpid, kill, select, pselect,
-         socketpair,
+         socketpair, poll, freeAddrInfo,
          ClockId, Itimerspec, Timespec, Sigset, Time, Pid, Mode,
          SigInfo, Id, Tmsghdr, IOVec, RLimit, TFdSet, Timeval,
          SockAddr, SockLen, Sockaddr_storage, Sockaddr_in,
          Sockaddr_in6, Sockaddr_un, AddrInfo, SocketHandle,
-         Suseconds,
+         Suseconds, TPollfd, Tnfds,
          FD_CLR, FD_ISSET, FD_SET, FD_ZERO,
          CLOCK_MONOTONIC, F_GETFL, F_SETFL, F_GETFD, F_SETFD,
          FD_CLOEXEC, O_NONBLOCK, SIG_BLOCK, SIG_UNBLOCK,
          SOL_SOCKET, SO_ERROR, RLIMIT_NOFILE, MSG_NOSIGNAL,
          MSG_PEEK,
          AF_INET, AF_INET6, AF_UNIX, SO_REUSEADDR, SO_REUSEPORT,
-         SO_BROADCAST, IPPROTO_IP, IPV6_MULTICAST_HOPS,
+         SO_BROADCAST, IPPROTO_IP, IPPROTO_IPV6, IPV6_MULTICAST_HOPS,
          SOCK_DGRAM, SOCK_STREAM, SHUT_RD, SHUT_WR, SHUT_RDWR,
+         POLLIN, POLLOUT, POLLERR, POLLHUP, POLLNVAL,
          SIGHUP, SIGINT, SIGQUIT, SIGILL, SIGTRAP, SIGABRT,
          SIGBUS, SIGFPE, SIGKILL, SIGUSR1, SIGSEGV, SIGUSR2,
          SIGPIPE, SIGALRM, SIGTERM, SIGPIPE, SIGCHLD, SIGSTOP,
@@ -1097,20 +1148,21 @@ elif defined(freebsd) or defined(openbsd) or defined(netbsd) or
                         sigaddset, sigismember, fcntl, accept, pipe, write,
                         signal, read, setsockopt, getsockopt, clock_gettime,
                         getcwd, chdir, waitpid, kill, select, pselect,
-                        socketpair,
+                        socketpair, poll, freeAddrInfo,
                         Timeval, Timespec, Pid, Mode, Time, Sigset, SockAddr,
                         SockLen, Sockaddr_storage, Sockaddr_in, Sockaddr_in6,
                         Sockaddr_un, SocketHandle, AddrInfo, RLimit, TFdSet,
-                        Suseconds,
+                        Suseconds, TPollfd, Tnfds,
                         FD_CLR, FD_ISSET, FD_SET, FD_ZERO,
                         F_GETFL, F_SETFL, F_GETFD, F_SETFD, FD_CLOEXEC,
                         O_NONBLOCK, SOL_SOCKET, SOCK_RAW, SOCK_DGRAM,
                         SOCK_STREAM, MSG_NOSIGNAL, MSG_PEEK,
                         AF_INET, AF_INET6, AF_UNIX, SO_ERROR, SO_REUSEADDR,
-                        SO_REUSEPORT, SO_BROADCAST, IPPROTO_IP,
+                        SO_REUSEPORT, SO_BROADCAST, IPPROTO_IP, IPPROTO_IPV6,
                         IPV6_MULTICAST_HOPS, SOCK_DGRAM, RLIMIT_NOFILE,
                         SIG_BLOCK, SIG_UNBLOCK, CLOCK_MONOTONIC,
                         SHUT_RD, SHUT_WR, SHUT_RDWR,
+                        POLLIN, POLLOUT, POLLERR, POLLHUP, POLLNVAL,
                         SIGHUP, SIGINT, SIGQUIT, SIGILL, SIGTRAP, SIGABRT,
                         SIGBUS, SIGFPE, SIGKILL, SIGUSR1, SIGSEGV, SIGUSR2,
                         SIGPIPE, SIGALRM, SIGTERM, SIGPIPE, SIGCHLD, SIGSTOP,
@@ -1123,20 +1175,21 @@ elif defined(freebsd) or defined(openbsd) or defined(netbsd) or
          sigaddset, sigismember, fcntl, accept, pipe, write,
          signal, read, setsockopt, getsockopt, clock_gettime,
          getcwd, chdir, waitpid, kill, select, pselect,
-         socketpair,
+         socketpair, poll, freeAddrInfo,
          Timeval, Timespec, Pid, Mode, Time, Sigset, SockAddr,
          SockLen, Sockaddr_storage, Sockaddr_in, Sockaddr_in6,
          Sockaddr_un, SocketHandle, AddrInfo, RLimit, TFdSet,
-         Suseconds,
+         Suseconds, TPollfd, Tnfds,
          FD_CLR, FD_ISSET, FD_SET, FD_ZERO,
          F_GETFL, F_SETFL, F_GETFD, F_SETFD, FD_CLOEXEC,
          O_NONBLOCK, SOL_SOCKET, SOCK_RAW, SOCK_DGRAM,
          SOCK_STREAM, MSG_NOSIGNAL, MSG_PEEK,
          AF_INET, AF_INET6, AF_UNIX, SO_ERROR, SO_REUSEADDR,
-         SO_REUSEPORT, SO_BROADCAST, IPPROTO_IP,
+         SO_REUSEPORT, SO_BROADCAST, IPPROTO_IP, IPPROTO_IPV6,
          IPV6_MULTICAST_HOPS, SOCK_DGRAM, RLIMIT_NOFILE,
          SIG_BLOCK, SIG_UNBLOCK, CLOCK_MONOTONIC,
          SHUT_RD, SHUT_WR, SHUT_RDWR,
+         POLLIN, POLLOUT, POLLERR, POLLHUP, POLLNVAL,
          SIGHUP, SIGINT, SIGQUIT, SIGILL, SIGTRAP, SIGABRT,
          SIGBUS, SIGFPE, SIGKILL, SIGUSR1, SIGSEGV, SIGUSR2,
          SIGPIPE, SIGALRM, SIGTERM, SIGPIPE, SIGCHLD, SIGSTOP,
@@ -1160,47 +1213,52 @@ when defined(linux):
     SOCK_CLOEXEC* = 0x80000
     TCP_NODELAY* = cint(1)
     IPPROTO_TCP* = 6
-elif defined(freebsd) or defined(netbsd) or defined(dragonfly):
+    O_CLOEXEC* = 0x80000
+    POSIX_SPAWN_USEVFORK* = 0x40
+    IPV6_V6ONLY* = 26
+elif defined(freebsd):
   const
     SOCK_NONBLOCK* = 0x20000000
     SOCK_CLOEXEC* = 0x10000000
     TCP_NODELAY* = cint(1)
     IPPROTO_TCP* = 6
+    O_CLOEXEC* = 0x00100000
+    POSIX_SPAWN_USEVFORK* = 0x00
+    IPV6_V6ONLY* = 27
+elif defined(netbsd):
+  const
+    SOCK_NONBLOCK* = 0x20000000
+    SOCK_CLOEXEC* = 0x10000000
+    TCP_NODELAY* = cint(1)
+    IPPROTO_TCP* = 6
+    O_CLOEXEC* = 0x00400000
+    POSIX_SPAWN_USEVFORK* = 0x00
+    IPV6_V6ONLY* = 27
+elif defined(dragonfly):
+  const
+    SOCK_NONBLOCK* = 0x20000000
+    SOCK_CLOEXEC* = 0x10000000
+    TCP_NODELAY* = cint(1)
+    IPPROTO_TCP* = 6
+    O_CLOEXEC* = 0x00020000
+    POSIX_SPAWN_USEVFORK* = 0x00
+    IPV6_V6ONLY* = 27
 elif defined(openbsd):
   const
     SOCK_CLOEXEC* = 0x8000
     SOCK_NONBLOCK* = 0x4000
     TCP_NODELAY* = cint(1)
     IPPROTO_TCP* = 6
+    O_CLOEXEC* = 0x10000
+    POSIX_SPAWN_USEVFORK* = 0x00
+    IPV6_V6ONLY* = 27
 elif defined(macos) or defined(macosx):
   const
     TCP_NODELAY* = cint(1)
     IP_MULTICAST_TTL* = cint(10)
     IPPROTO_TCP* = 6
-
-when defined(linux):
-  const
-    O_CLOEXEC* = 0x80000
-    POSIX_SPAWN_USEVFORK* = 0x40
-elif defined(freebsd):
-  const
-    O_CLOEXEC* = 0x00100000
     POSIX_SPAWN_USEVFORK* = 0x00
-elif defined(openbsd):
-  const
-    O_CLOEXEC* = 0x10000
-    POSIX_SPAWN_USEVFORK* = 0x00
-elif defined(netbsd):
-  const
-    O_CLOEXEC* = 0x00400000
-    POSIX_SPAWN_USEVFORK* = 0x00
-elif defined(dragonfly):
-  const
-    O_CLOEXEC* = 0x00020000
-    POSIX_SPAWN_USEVFORK* = 0x00
-elif defined(macos) or defined(macosx):
-  const
-    POSIX_SPAWN_USEVFORK* = 0x00
+    IPV6_V6ONLY* = 27
 
 when defined(linux) or defined(macos) or defined(macosx) or defined(freebsd) or
      defined(openbsd) or defined(netbsd) or defined(dragonfly):
@@ -1468,6 +1526,8 @@ when defined(posix):
     INVALID_HANDLE_VALUE* = cint(-1)
 
 proc `==`*(x: SocketHandle, y: int): bool = int(x) == y
+when defined(nimdoc):
+  proc `==`*(x: SocketHandle, y: SocketHandle): bool {.borrow.}
 
 when defined(macosx) or defined(macos) or defined(bsd):
   const
@@ -1595,6 +1655,8 @@ elif defined(linux):
     # RTA_PRIORITY* = 6'u16
     RTA_PREFSRC* = 7'u16
     # RTA_METRICS* = 8'u16
+    RTM_NEWLINK* = 16'u16
+    RTM_NEWROUTE* = 24'u16
 
     RTM_F_LOOKUP_TABLE* = 0x1000
 

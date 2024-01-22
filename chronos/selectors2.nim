@@ -31,32 +31,11 @@
 # support - changes could potentially be backported to nim but are not
 # backwards-compatible.
 
-import stew/results
-import osdefs, osutils, oserrno
+import results
+import "."/[config, osdefs, osutils, oserrno]
 export results, oserrno
 
-const
-  asyncEventsCount* {.intdefine.} = 64
-    ## Number of epoll events retrieved by syscall.
-  asyncInitialSize* {.intdefine.} = 64
-    ## Initial size of Selector[T]'s array of file descriptors.
-  asyncEventEngine* {.strdefine.} =
-    when defined(linux):
-      "epoll"
-    elif defined(macosx) or defined(macos) or defined(ios) or
-         defined(freebsd) or defined(netbsd) or defined(openbsd) or
-         defined(dragonfly):
-      "kqueue"
-    elif defined(posix):
-      "poll"
-    else:
-      ""
-    ## Engine type which is going to be used by module.
-
-  hasThreadSupport = compileOption("threads")
-
 when defined(nimdoc):
-
   type
     Selector*[T] = ref object
       ## An object which holds descriptors to be checked for read/write status
@@ -281,7 +260,9 @@ else:
     var err = newException(IOSelectorsException, msg)
     raise err
 
-  when asyncEventEngine in ["epoll", "kqueue"]:
+  when chronosEventEngine in ["epoll", "kqueue"]:
+    const hasThreadSupport = compileOption("threads")
+
     proc blockSignals(newmask: Sigset,
                       oldmask: var Sigset): Result[void, OSErrorCode] =
       var nmask = newmask
@@ -324,11 +305,11 @@ else:
     doAssert((timeout >= min) and (timeout <= max),
              "Cannot select with incorrect timeout value, got " & $timeout)
 
-when asyncEventEngine == "epoll":
-  include ./ioselects/ioselectors_epoll
-elif asyncEventEngine == "kqueue":
-  include ./ioselects/ioselectors_kqueue
-elif asyncEventEngine == "poll":
-  include ./ioselects/ioselectors_poll
-else:
-  {.fatal: "Event engine `" & asyncEventEngine & "` is not supported!".}
+  when chronosEventEngine == "epoll":
+    include ./ioselects/ioselectors_epoll
+  elif chronosEventEngine == "kqueue":
+    include ./ioselects/ioselectors_kqueue
+  elif chronosEventEngine == "poll":
+    include ./ioselects/ioselectors_poll
+  else:
+    {.fatal: "Event engine `" & chronosEventEngine & "` is not supported!".}
