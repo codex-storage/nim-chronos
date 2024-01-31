@@ -109,30 +109,25 @@ suite "Profiler hooks test suite":
     ]
 
   test "should not say a future is completed before children in finally blocks are run":
-    skip()
-    when false:
-      # TODO: chronos allows completed futures to generate children in their
-      #   finally blocks. This causes a set of transitions that break our state
-      #   machine.
-      proc withFinally(): Future[void] {.async.} =
-        try:
-          return
-        finally:
-          recordSegment("segment 1")
-          await sleepAsync(10.milliseconds)
-          # both segments must run
-          recordSegment("segment 2")
+    proc withFinally(): Future[void] {.async.} =
+      try:
+        return
+      finally:
+        recordSegment("segment 1")
+        await sleepAsync(10.milliseconds)
+        # both segments must run
+        recordSegment("segment 2")
 
-      waitFor withFinally()
+    waitFor withFinally()
 
-      check recording == @[
-        SimpleEvent(state: Pending, procedure: "withFinally"),
-        SimpleEvent(state: ExtendedFutureState.Running, procedure: "withFinally"),
-        SimpleEvent(state: ExtendedFutureState.Running, procedure: "segment 1"),
-        SimpleEvent(state: ExtendedFutureState.Pending, procedure: "chronos.sleepAsync(Duration)"),
-        SimpleEvent(state: ExtendedFutureState.Paused, procedure: "withFinally"),
-        SimpleEvent(state: ExtendedFutureState.Completed, procedure: "chronos.sleepAsync(Duration)"),
-        SimpleEvent(state: ExtendedFutureState.Running, procedure: "withFinally"),
-        SimpleEvent(state: ExtendedFutureState.Running, procedure: "segment 2"),
-        SimpleEvent(state: ExtendedFutureState.Completed, procedure: "withFinally"),
-      ]
+    check recording == @[
+      SimpleEvent(state: Pending, procedure: "withFinally"),
+      SimpleEvent(state: ExtendedFutureState.Running, procedure: "withFinally"),
+      SimpleEvent(state: ExtendedFutureState.Running, procedure: "segment 1"),
+      SimpleEvent(state: ExtendedFutureState.Pending, procedure: "chronos.sleepAsync(Duration)"),
+      SimpleEvent(state: ExtendedFutureState.Paused, procedure: "withFinally"),
+      SimpleEvent(state: ExtendedFutureState.Completed, procedure: "chronos.sleepAsync(Duration)"),
+      SimpleEvent(state: ExtendedFutureState.Running, procedure: "withFinally"),
+      SimpleEvent(state: ExtendedFutureState.Running, procedure: "segment 2"),
+      SimpleEvent(state: ExtendedFutureState.Completed, procedure: "withFinally"),
+    ]

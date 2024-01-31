@@ -151,11 +151,11 @@ suite "Profiler metrics test suite":
       check nonblockingChildMetrics.childrenExecTime == ZeroDuration
 
     test "should compute correct times when a child throws an exception":
-      proc child() {.async.} =
+      proc child() {.async: (raises: [CatchableError]).} =
         advanceTime(10.milliseconds)
-        raise newException(Exception, "child exception")
+        raise newException(CatchableError, "child exception")
 
-      proc parent() {.async.} =
+      proc parent() {.async: (raises: [CatchableError]).} =
         advanceTime(10.milliseconds)
         try:
           await child()
@@ -243,22 +243,22 @@ suite "Profiler metrics test suite":
       check parentMetrics.execTimeMax == ZeroDuration
       check childMetrics.execTimeMax == 50.milliseconds
 
-    test "should count zombie futures and measure their non-zombie execution time":
-      proc zombie() {.async.} =
+    test "should compute the correct execution time within finally blocks":
+      proc withFinally() {.async.} =
         try:
           advanceTime(10.milliseconds)
           return
         finally:
-          advanceTime(10.milliseconds) # this is ran in zombie mode
+          advanceTime(10.milliseconds)
           await advanceTimeAsync(10.milliseconds)
+          advanceTime(10.milliseconds)
 
-      waitFor zombie()
+      waitFor withFinally()
 
       var metrics = recordedMetrics()
-      var zombieMetrics = metrics.forProc("zombie")
+      var withFinallyMetrics = metrics.forProc("withFinally")
 
-      check zombieMetrics.execTime == 10.milliseconds
-      check zombieMetrics.zombieEventCount == 1
+      check withFinallyMetrics.execTime == 30.milliseconds
 
     test "should count futures which start in a completion state":
       let completed {.used.} = Future.completed(42)

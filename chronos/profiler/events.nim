@@ -1,11 +1,10 @@
 ## This module defines the lower-level callback implementations that hook into
 ## the Chronos scheduler when profiling is enabled. The main goal is to provide
-## timestamped events changes for futures while allowing a simpler implementation
-## (only one event object type) for the remainder of the profiler.
+## timestamped state changes for futures, which form the input for the profiler.
 
-import ".."/timer
-import ".."/futures
-import ".."/srcloc
+import ../timer
+import ../futures
+import ../srcloc
 
 type
   ExtendedFutureState* {.pure.} = enum
