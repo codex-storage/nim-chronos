@@ -50,21 +50,24 @@ task examples, "Build examples":
   # Build book examples
   for file in listFiles("docs/examples"):
     if file.endsWith(".nim"):
-      build "", file
+      build "--threads:on", file
 
 task test, "Run all tests":
   for args in testArguments:
-    run args, "tests/testall"
     if (NimMajor, NimMinor) > (1, 6):
+      # First run tests with `refc` memory manager.
       run args & " --mm:refc", "tests/testall"
-
+    run args, "tests/testall"
 
 task test_libbacktrace, "test with libbacktrace":
-  var allArgs = @[
-      "-d:release --debugger:native -d:chronosStackTrace -d:nimStackTraceOverride --import:libbacktrace",
-    ]
+  let allArgs = @[
+    "-d:release --debugger:native -d:chronosStackTrace -d:nimStackTraceOverride --import:libbacktrace",
+  ]
 
   for args in allArgs:
+    if (NimMajor, NimMinor) > (1, 6):
+      # First run tests with `refc` memory manager.
+      run args & " --mm:refc", "tests/testall"
     run args, "tests/testall"
 
 task test_profiler, "test with profiler instrumentation":
