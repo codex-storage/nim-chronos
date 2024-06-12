@@ -40,7 +40,12 @@ const
   chronosStackTrace* {.booldefine.}: bool = defined(chronosDebug)
     ## Include stack traces in futures for creation and completion points
 
-  chronosFutureId* {.booldefine.}: bool = defined(chronosDebug)
+  chronosProfiling* {.booldefine.} = defined(chronosProfiling)
+    ## Enable instrumentation callbacks which are called at
+    ## the start, pause, or end of a Future's lifetime.
+    ## Useful for implementing metrics or other instrumentation.
+
+  chronosFutureId* {.booldefine.}: bool = defined(chronosDebug) or chronosProfiling
     ## Generate a unique `id` for every future - when disabled, the address of
     ## the future will be used instead
 

@@ -181,6 +181,11 @@ proc finish(fut: FutureBase, state: FutureState) =
   # 1. `finish()` is a private procedure and `state` is under our control.
   # 2. `fut.state` is checked by `checkFinished()`.
   fut.internalState = state
+
+  when chronosProfiling:
+    if not isNil(onBaseFutureEvent):
+      onBaseFutureEvent(fut, state)
+
   fut.internalCancelcb = nil # release cancellation callback memory
   for item in fut.internalCallbacks.mitems():
     if not(isNil(item.function)):
@@ -365,6 +370,10 @@ proc futureContinue*(fut: FutureBase) {.raises: [], gcsafe.} =
   #
   # Every call to an `{.async.}` proc is redirected to call this function
   # instead with its original body captured in `fut.closure`.
+  when chronosProfiling:
+    if not isNil(onAsyncFutureEvent):
+      onAsyncFutureEvent(fut, Running)
+
   while true:
     # Call closure to make progress on `fut` until it reaches `yield` (inside
     # `await` typically) or completes / fails / is cancelled
@@ -381,6 +390,10 @@ proc futureContinue*(fut: FutureBase) {.raises: [], gcsafe.} =
       # `fut` to continue running when that happens
       GC_ref(fut)
       next.addCallback(CallbackFunc(internalContinue), cast[pointer](fut))
+
+      when chronosProfiling:
+        if not isNil(onAsyncFutureEvent):
+          onAsyncFutureEvent(fut, Paused)
 
       # return here so that we don't remove the closure below
       return
