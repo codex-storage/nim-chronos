@@ -80,6 +80,14 @@ task test_libbacktrace, "test with libbacktrace":
         run args & " --mm:refc", "tests/testall"
       run args, "tests/testall"
 
+task test_profiler, "test with profiler instrumentation":
+  var allArgs = @[
+      " -d:chronosFutureId -d:chronosProfiling",
+    ]
+
+  for args in allArgs:
+    run args, "tests/testall"
+
 task docs, "Generate API documentation":
   exec "mdbook build docs"
   exec nimc & " doc " & "--git.url:https://github.com/status-im/nim-chronos --git.commit:master --outdir:docs/book/api --project chronos"
