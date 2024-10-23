@@ -2,6 +2,8 @@ import
   std/[macros, sequtils],
   ../futures
 
+{.push raises: [].}
+
 type
   InternalRaisesFuture*[T, E] = ref object of Future[T]
     ## Future with a tuple of possible exception types
@@ -10,6 +12,12 @@ type
     ## This type gets injected by `async: (raises: ...)` and similar utilities
     ## and should not be used manually as the internal exception representation
     ## is subject to change in future chronos versions.
+    # TODO https://github.com/nim-lang/Nim/issues/23418
+    # TODO https://github.com/nim-lang/Nim/issues/23419
+    when E is void:
+      dummy: E
+    else:
+      dummy: array[0, E]
 
 proc makeNoRaises*(): NimNode {.compileTime.} =
   # An empty tuple would have been easier but...
@@ -51,17 +59,32 @@ proc members(tup: NimNode): seq[NimNode] {.compileTime.} =
 macro hasException(raises: typedesc, ident: static string): bool =
   newLit(raises.members.anyIt(it.eqIdent(ident)))
 
-macro Raising*[T](F: typedesc[Future[T]], E: varargs[typedesc]): untyped =
+macro Raising*[T](F: typedesc[Future[T]], E: typed): untyped =
   ## Given a Future type instance, return a type storing `{.raises.}`
   ## information
   ##
   ## Note; this type may change in the future
-  E.expectKind(nnkBracket)
 
-  let raises = if E.len == 0:
+  # An earlier version used `E: varargs[typedesc]` here but this is buggyt/no
+  # longer supported in 2.0 in certain cases:
+  # https://github.com/nim-lang/Nim/issues/23432
+  let
+    e =
+      case E.getTypeInst().typeKind()
+      of ntyTypeDesc: @[E]
+      of ntyArray:
+        for x in E:
+          if x.getTypeInst().typeKind != ntyTypeDesc:
+            error("Expected typedesc, got " & repr(x), x)
+        E.mapIt(it)
+      else:
+        error("Expected typedesc, got " & repr(E), E)
+        @[]
+
+  let raises = if e.len == 0:
     makeNoRaises()
   else:
-    nnkTupleConstr.newTree(E.mapIt(it))
+    nnkTupleConstr.newTree(e)
   nnkBracketExpr.newTree(
     ident "InternalRaisesFuture",
     nnkDotExpr.newTree(F, ident"T"),
@@ -142,7 +165,7 @@ macro union*(tup0: typedesc, tup1: typedesc): typedesc =
     if not found:
       result.add err
 
-  for err2 in getType(getTypeInst(tup1)[1])[1..^1]:
+  for err2 in tup1.members():
     result.add err2
   if result.len == 0:
     result = makeNoRaises()
@@ -205,13 +228,20 @@ macro checkRaises*[T: CatchableError](
         `warning`
         assert(`runtimeChecker`, `errorMsg`)
 
-proc error*[T](future: InternalRaisesFuture[T, void]): ref CatchableError {.
+func failed*[T](future: InternalRaisesFuture[T, void]): bool {.inline.} =
+  ## Determines whether ``future`` finished with an error.
+  static:
+    warning("No exceptions possible with this operation, `failed` always returns false")
+
+  false
+
+func error*[T](future: InternalRaisesFuture[T, void]): ref CatchableError {.
     raises: [].} =
   static:
     warning("No exceptions possible with this operation, `error` always returns nil")
   nil
 
-proc readError*[T](future: InternalRaisesFuture[T, void]): ref CatchableError {.
+func readError*[T](future: InternalRaisesFuture[T, void]): ref CatchableError {.
     raises: [ValueError].} =
   static:
     warning("No exceptions possible with this operation, `readError` always raises")

@@ -102,6 +102,9 @@ const
   chronosStreamDefaultBufferSize* {.intdefine.} = 16384
     ## Default size of chronos async stream internal buffer.
 
+  chronosTLSSessionCacheBufferSize* {.intdefine.} = 4096
+    ## Default size of chronos TLS Session cache's internal buffer.
+
 when defined(chronosStrictException):
   {.warning: "-d:chronosStrictException has been deprecated in favor of handleException".}
   # In chronos v3, this setting was used as the opposite of
@@ -128,6 +131,8 @@ when defined(debug) or defined(chronosConfig):
       chronosTransportDefaultBufferSize)
     printOption("chronosStreamDefaultBufferSize",
       chronosStreamDefaultBufferSize)
+    printOption("chronosTLSSessionCacheBufferSize",
+      chronosTLSSessionCacheBufferSize)
 
 # In nim 1.6, `sink` + local variable + `move` generates the best code for
 # moving a proc parameter into a closure - this only works for closure

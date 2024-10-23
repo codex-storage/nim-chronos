@@ -11,7 +11,7 @@
 
 import std/[tables, uri, strutils]
 import stew/[base10], httputils, results
-import ../../[asyncloop, asyncsync]
+import ../../[asyncloop, asyncsync, config]
 import ../../streams/[asyncstream, boundstream, chunkstream]
 import "."/[httptable, httpcommon, multipart]
 from ../../transports/common import TransportAddress, ServerFlags, `$`, `==`
@@ -244,7 +244,7 @@ proc new*(
        serverUri = Uri(),
        serverIdent = "",
        maxConnections: int = -1,
-       bufferSize: int = 4096,
+       bufferSize: int = chronosTransportDefaultBufferSize,
        backlogSize: int = DefaultBacklogSize,
        httpHeadersTimeout = 10.seconds,
        maxHeadersSize: int = 8192,
@@ -304,7 +304,7 @@ proc new*(
        serverUri = Uri(),
        serverIdent = "",
        maxConnections: int = -1,
-       bufferSize: int = 4096,
+       bufferSize: int = chronosTransportDefaultBufferSize,
        backlogSize: int = DefaultBacklogSize,
        httpHeadersTimeout = 10.seconds,
        maxHeadersSize: int = 8192,
@@ -1187,23 +1187,7 @@ proc closeWait*(server: HttpServerRef) {.async: (raises: []).} =
 proc join*(server: HttpServerRef): Future[void] {.
      async: (raw: true, raises: [CancelledError]).} =
   ## Wait until HTTP server will not be closed.
-  var retFuture = newFuture[void]("http.server.join")
-
-  proc continuation(udata: pointer) {.gcsafe.} =
-    if not(retFuture.finished()):
-      retFuture.complete()
-
-  proc cancellation(udata: pointer) {.gcsafe.} =
-    if not(retFuture.finished()):
-      server.lifetime.removeCallback(continuation, cast[pointer](retFuture))
-
-  if server.state == ServerClosed:
-    retFuture.complete()
-  else:
-    server.lifetime.addCallback(continuation, cast[pointer](retFuture))
-    retFuture.cancelCallback = cancellation
-
-  retFuture
+  server.lifetime.join()
 
 proc getMultipartReader*(req: HttpRequestRef): HttpResult[MultiPartReaderRef] =
   ## Create new MultiPartReader interface for specific request.
